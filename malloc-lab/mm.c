@@ -202,14 +202,14 @@ static void* find_fit(size_t asize){
     void *bp;
     void *best_fit=NULL;
     size_t min_gap=(1<<12);
-    for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
-        if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
+    for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
+        size_t csize=GET_SIZE(HDRP(bp));
+        if(!GET_ALLOC(HDRP(bp))&& (asize<=csize)){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
             if(GET_SIZE(HDRP(bp))==asize)
                 return bp;
             else{
-                size_t gap=abs(GET_SIZE(HDRP(bp))-asize);
-                if(gap<min_gap){
-                    min_gap=gap;
+                if(csize-asize<min_gap){
+                    min_gap=csize-asize;
                     best_fit=bp;
                 }
             }
