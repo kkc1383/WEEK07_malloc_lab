@@ -61,12 +61,12 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE))) // 지금 블록의 사이즈만큼 더하면 다음블록의 payload 위치가 나옴
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록의 풋터로가서 사이즈를 구한뒤 지금 위치에서 이전 블록만큼 빼면 이전블록의 payload 위치가 나옴
 
-static void* heap_listp=NULL; // 프롤로그의 payload 위치
-static void* last_bp=NULL;
+static char* heap_listp=NULL; // 프롤로그의 payload 위치
+static char* last_bp=NULL;
 static void* extend_heap(size_t words); // 추가 힙 메모리를 할당받는 함수
-static void* coalesce(void* bp); // 병합하는 함수
+static void* coalesce(char* bp); // 병합하는 함수
 static void* find_fit(size_t asize); // 알맞는 블록을 찾는 함수(key point)
-static void place(void* bp, size_t asize); //알맞는 블록을 찾았으면 그 자리에 데이터를 넣는 함수
+static void place(char* bp, size_t asize); //알맞는 블록을 찾았으면 그 자리에 데이터를 넣는 함수
 
 /*
  * 알아두면 좋을 조합
@@ -82,7 +82,8 @@ static void place(void* bp, size_t asize); //알맞는 블록을 찾았으면 �
 int mm_init(void)
 {
     if((heap_listp=mem_sbrk(4*WSIZE))== (void *)-1) // sbrk 함수를 통해 첫 4byte(패딩,프롤로그,에필로그)를 할당받기, 안되면 리턴
-        return 1;
+        return -1;
+    heap_listp=(char *)heap_listp;
     PUT(heap_listp,0); // 우선 heap_listp가 우리가 이제부터 사용할 힙메모리의 시작지점이므로 맨 앞 1워드 패딩을 먼저 넣음
     PUT(heap_listp + (1*WSIZE), PACK(DSIZE,1)); // 1워드 패딩 다음에 프롤로그 헤더를 넣음
     PUT(heap_listp + (2*WSIZE), PACK(DSIZE,1)); // 2워드 패딩 다음에 프롤로그 풋터를 넣음
@@ -102,7 +103,7 @@ void *mm_malloc(size_t size)
 {
     if(!size) return NULL; //일단 size가 0을 할당받으려한다면 NULL 리턴
 
-    int asize = ALIGN(size); // 헤더,풋터 합친거 그거랑 원하는 사이즈를 더하고, align에 맞춤
+    size_t asize = ALIGN(size); // 헤더,풋터 합친거 그거랑 원하는 사이즈를 더하고, align에 맞춤
     char *bp; // payload 시작 위치를 가리킴
     if ((bp=find_fit(asize))!=NULL){ // asize만큼 할당받을 블록의 위치를 받음, 만약 없다면 pass 아래로 감
         place(bp,asize); // 그 위치에 bp를 박음
@@ -122,10 +123,11 @@ void *mm_malloc(size_t size)
 void mm_free(void *ptr)
 {
     size_t size = GET_SIZE(HDRP(ptr)); // 메모리 반환을 원하는 지점(payload 시작부분)의 헤더로부터 사이즈 얻기
-
+    
     PUT(HDRP(ptr), PACK(size,0)); // 헤더에 free임을 알리기위해서 alloc_bit를 0으로 새로 갱신
-    PUT(FTRP(ptr), PACK(size,0));// 풋터에 free임을 알리기위해서 alloc_bit를 0으로 새로 갱신
-    coalesce(ptr); //free를 하였으니 앞뒤 블록을 보고 병합(즉시 연결 방식)
+    PUT(FTRP(ptr), PACK(size,0)); // 풋터에 free임을 알리기위해서 alloc_bit를 0으로 새로 갱신
+    last_bp=coalesce(ptr); //free를 하였으니 앞뒤 블록을 보고 병합(즉시 연결 방식) //여기서 free이후에 병합한 결과를 last_bp로 만들면 해당 지점이 일단 확실히 free이기도하고 이상한 곳을 가리키지 않게됨
+
 }
 
 /*
@@ -169,9 +171,9 @@ static void* extend_heap(size_t words){
     return coalesce(bp); //추가로 할당받은 블록을 기준으로 병합, 오른쪽은 당연히 안되겠지만 왼쪽 확인해서 병합
 }
 
-static void* coalesce(void* bp){
+static void* coalesce(char* bp){
     size_t prev_alloc = GET_ALLOC(FTRP(PREV_BLKP(bp))); //왼쪽블록의 푸터로부터 가져온 alloc_bit 
-    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp))); //오른쪽블록의 푸터로부터 가져온 alloc_bit
+    size_t next_alloc = GET_ALLOC(HDRP(NEXT_BLKP(bp))); //오른쪽블록의 헤더로부터 가져온 alloc_bit
     size_t size = GET_SIZE(HDRP(bp)); //지금 내 블록의 사이즈
 
     if(prev_alloc&& next_alloc){ // 왼쪽 오른쪽 둘다 allocated이면 그냥 bp 반환
@@ -190,35 +192,35 @@ static void* coalesce(void* bp){
     }
     else{
         size+=GET_SIZE(HDRP(PREV_BLKP(bp)))+
-            GET_SIZE(FTRP(NEXT_BLKP(bp)));
+            GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size,0)); // 이전 블록의 시작부분에 헤더를 설정
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0)); // 다음 블록의 풋터부분에 풋터 설정
         bp=PREV_BLKP(bp);
     }
-    return bp;
+    return (void *)bp;
 }
 
 static void* find_fit(size_t asize){
-    if(!last_bp) last_bp=heap_listp;
+    if(!last_bp) last_bp=NEXT_BLKP(heap_listp);
     // last_bp를 아예 전역변수로 둬버렸음. 지역 정적변수는 재귀함수에만 사용
-    void* bp;
+    char* bp;
     for(bp=last_bp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 최근에 봤던 bp부터 검색 //GET_SIZE(HDRP(bp)) 는 언젠가 에필로그 블록을 만남 거기에서 끝내라는 뜻
-        if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
+        if(!GET_ALLOC(HDRP(bp)) && (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
             last_bp=bp;//last_bp를 bp다음 블락으로 잡을까 생각했는데, 힙의 범위를 넘어설 수도 있는 위험이 있어서 그냥 현재 bp값을 저장하는 것으로 // 라고 생각했는데 효율과 일관성을 위해서 다음 블록을 사용한다고 하네요
-            return bp; // 찾았으면 바로 리턴
+            return (void *)bp; // 찾았으면 바로 리턴
         }
     }
 
     for(bp=NEXT_BLKP(heap_listp);bp!=last_bp;bp=NEXT_BLKP(bp)){ // 최근에 봤던 것부터 봤는데 없으니까 혹시 몰라 처음부터 최근에 봤던 곳 까지만 봄
-        if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){
+        if(!GET_ALLOC(HDRP(bp)) && (asize<=GET_SIZE(HDRP(bp)))){
             last_bp=bp;
-            return bp; 
+            return (void *)bp; 
         }
     }
     return NULL; // 못찾았으면 null
 }
 
-static void place(void* bp, size_t asize){ // 이 함수는 블록을 받아서 값 입력을 했는데, 남는 공간이 있을 수도 있으니까 그거 분할하는 과정도 포함되어 있음.
+static void place(char* bp, size_t asize){ // 이 함수는 블록을 받아서 값 입력을 했는데, 남는 공간이 있을 수도 있으니까 그거 분할하는 과정도 포함되어 있음.
     size_t csize=GET_SIZE(HDRP(bp)); // 내가 할당받은 블록의 사이즈 (align 되어 있음)
 
     // 근데 남는 블락이 홀수면 어떡함? 이걸 그대로 냅둬버리면 align이 깨지지 않나? 왜냐면 이거부터 시작할테니까 그런데 애초에 할당받는것도 align이 된 것이고, 내가 넣으려던 값 asize도 align이 되어서 절대로 차이가 홀수가 나올 수가 없음.
