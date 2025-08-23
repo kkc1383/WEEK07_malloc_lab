@@ -209,7 +209,7 @@ static void* find_fit(size_t asize){
         }
     }
 
-    for(bp=heap_listp;bp!=last_bp;bp=NEXT_BLKP(bp)){ // 최근에 봤던 것부터 봤는데 없으니까 혹시 몰라 처음부터 최근에 봤던 곳 까지만 봄
+    for(bp=NEXT_BLKP(heap_listp);bp!=last_bp;bp=NEXT_BLKP(bp)){ // 최근에 봤던 것부터 봤는데 없으니까 혹시 몰라 처음부터 최근에 봤던 곳 까지만 봄
         if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){
             last_bp=bp;
             return bp; 
