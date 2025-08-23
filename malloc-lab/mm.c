@@ -105,7 +105,7 @@ void *mm_malloc(size_t size)
     char *bp; // payload 시작 위치를 가리킴
     if ((bp=find_fit(asize))!=NULL){ // asize만큼 할당받을 블록의 위치를 받음, 만약 없다면 pass 아래로 감
         place(bp,asize); // 그 위치에 bp를 박음
-        return NULL;
+        return bp;
     }
 
     size_t extendsize=MAX(asize,CHUNKSIZE); // 추가 메모리를 할당받아야 한다면, 적어도 CHUNKSIZE만큼 받고 싶기에 둘중 큰 값을 설정함
