@@ -62,6 +62,7 @@ team_t team = {
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록의 풋터로가서 사이즈를 구한뒤 지금 위치에서 이전 블록만큼 빼면 이전블록의 payload 위치가 나옴
 
 static void* heap_listp=NULL; // 프롤로그의 payload 위치
+static void* last_bp=NULL;
 static void* extend_heap(size_t words); // 추가 힙 메모리를 할당받는 함수
 static void* coalesce(void* bp); // 병합하는 함수
 static void* find_fit(size_t asize); // 알맞는 블록을 찾는 함수(key point)
@@ -101,7 +102,7 @@ void *mm_malloc(size_t size)
 {
     if(!size) return NULL; //일단 size가 0을 할당받으려한다면 NULL 리턴
 
-    int asize = ALIGN(size); // SIZE_T_SIZE는 8byte, 헤더,풋터 합친거 그거랑 원하는 사이즈를 더하고, align에 맞춤
+    int asize = ALIGN(size); // 헤더,풋터 합친거 그거랑 원하는 사이즈를 더하고, align에 맞춤
     char *bp; // payload 시작 위치를 가리킴
     if ((bp=find_fit(asize))!=NULL){ // asize만큼 할당받을 블록의 위치를 받음, 만약 없다면 pass 아래로 감
         place(bp,asize); // 그 위치에 bp를 박음
@@ -165,7 +166,6 @@ static void* extend_heap(size_t words){
     PUT(HDRP(bp), PACK(size,0)); //추가 메모리 할당받은 곳은 free니까 헤더에 size와 alloc_bit=0을 새김
     PUT(FTRP(bp), PACK(size,0));//추가 메모리 할당받은 곳은 free니까 풋터에 size와 alloc_bit=0을 새김
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1)); // 새로운 에필로그 블록을 생성
-
     return coalesce(bp); //추가로 할당받은 블록을 기준으로 병합, 오른쪽은 당연히 안되겠지만 왼쪽 확인해서 병합
 }
 
@@ -199,10 +199,20 @@ static void* coalesce(void* bp){
 }
 
 static void* find_fit(size_t asize){
-    void *bp;
-    for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
+    if(!last_bp) last_bp=heap_listp;
+    // last_bp를 아예 전역변수로 둬버렸음. 지역 정적변수는 재귀함수에만 사용
+    void* bp;
+    for(bp=last_bp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 최근에 봤던 bp부터 검색 //GET_SIZE(HDRP(bp)) 는 언젠가 에필로그 블록을 만남 거기에서 끝내라는 뜻
         if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
+            last_bp=bp;//last_bp를 bp다음 블락으로 잡을까 생각했는데, 힙의 범위를 넘어설 수도 있는 위험이 있어서 그냥 현재 bp값을 저장하는 것으로 // 라고 생각했는데 효율과 일관성을 위해서 다음 블록을 사용한다고 하네요
             return bp; // 찾았으면 바로 리턴
+        }
+    }
+
+    for(bp=heap_listp;bp!=last_bp;bp=NEXT_BLKP(bp)){ // 최근에 봤던 것부터 봤는데 없으니까 혹시 몰라 처음부터 최근에 봤던 곳 까지만 봄
+        if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){
+            last_bp=bp;
+            return bp; 
         }
     }
     return NULL; // 못찾았으면 null
@@ -218,9 +228,11 @@ static void place(void* bp, size_t asize){ // 이 함수는 블록을 받아서 
         bp=NEXT_BLKP(bp);// asize기준 남는 블락의 payload쪽으로 이동
         PUT(HDRP(bp),PACK(csize-asize,0)); // 남는크기만큼 free block의 헤더 설정
         PUT(FTRP(bp),PACK(csize-asize,0)); // 남는 크기만큼 free block의 풋터 설정
+        last_bp=bp; //블락 설정할때마다 last_bp 다음블락으로 옮기기
     }
     else{ //남는 공간이 없으면 그냥 넣기
         PUT(HDRP(bp),PACK(csize,1));
         PUT(FTRP(bp),PACK(csize,1));
+        last_bp=NEXT_BLKP(bp);//블락 설정할때마다 last_bp 옮기기
     }
 }
