@@ -200,12 +200,22 @@ static void* coalesce(void* bp){
 
 static void* find_fit(size_t asize){
     void *bp;
+    void *best_fit=NULL;
+    size_t min_gap=(1<<12);
     for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
         if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
-            return bp; // 찾았으면 바로 리턴
+            if(GET_SIZE(HDRP(bp))==asize)
+                return bp;
+            else{
+                size_t gap=abs(GET_SIZE(HDRP(bp))-asize);
+                if(gap<min_gap){
+                    min_gap=gap;
+                    best_fit=bp;
+                }
+            }
         }
     }
-    return NULL; // 못찾았으면 null
+    return best_fit; // 못찾았으면 null
 }
 
 static void place(void* bp, size_t asize){ // 이 함수는 블록을 받아서 값 입력을 했는데, 남는 공간이 있을 수도 있으니까 그거 분할하는 과정도 포함되어 있음.
