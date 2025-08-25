@@ -285,16 +285,16 @@ static void* coalesce(void* bp){
 
 static void* find_fit(size_t asize){
     void *bp;
-    // for(bp=fl_head;bp!=NULL;bp=NEXT_FL(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
-    //     if(asize<=GET_SIZE(HDRP(bp))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
-    //         return bp; // 찾았으면 바로 리턴
-    //     }
-    // }
-    for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 최근에 봤던 bp부터 검색 //GET_SIZE(HDRP(bp)) 는 언젠가 에필로그 블록을 만남 거기에서 끝내라는 뜻
-        if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
+    for(bp=fl_head;bp!=NULL;bp=NEXT_FL(bp)){ // 프롤로그부터 시작해서 각 블록별 순회
+        if(asize<=GET_SIZE(HDRP(bp))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
             return bp; // 찾았으면 바로 리턴
         }
     }
+    // for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){ // 최근에 봤던 bp부터 검색 //GET_SIZE(HDRP(bp)) 는 언젠가 에필로그 블록을 만남 거기에서 끝내라는 뜻
+    //     if(!GET_ALLOC(HDRP(bp))&& (asize<=GET_SIZE(HDRP(bp)))){ // 일단 free인지 확인, 그다음 원하는 asize를 담을 수 있는지 확인
+    //         return bp; // 찾았으면 바로 리턴
+    //     }
+    // }
     return NULL; // 못찾았으면 null
 }
 
