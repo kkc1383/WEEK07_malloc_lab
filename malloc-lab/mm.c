@@ -61,6 +61,10 @@ team_t team = {
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE))) // 지금 블록의 사이즈만큼 더하면 다음블록의 payload 위치가 나옴
 #define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE))) // 이전 블록의 풋터로가서 사이즈를 구한뒤 지금 위치에서 이전 블록만큼 빼면 이전블록의 payload 위치가 나옴
 
+#define GET_PREV_FREE(p) (GET(p) & 0x10) // p라는 포인터가 가리키는 헤더의 prev_free 유무 (뒤에서 두번째 비트 1자리)
+#define PREV(bp) (*(void **)(bp))
+#define NEXT(bp) (*(void **)((char *)(bp) + WSIZE))   
+
 static void* heap_listp=NULL; // 프롤로그의 payload 위치
 static void* extend_heap(size_t words); // 추가 힙 메모리를 할당받는 함수
 static void* coalesce(void* bp); // 병합하는 함수
