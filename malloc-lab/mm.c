@@ -169,12 +169,10 @@ void *mm_realloc(void *ptr, size_t size)
     size_t asize=ALIGN(size); // 요청받은 size를 align에 맞춘 값 + 헤더 풋터 더한 값
     if(asize<=oldSize){  //size가 줄어들어야 한다면
         if(oldSize-asize>=2*DSIZE){//줄어들고 남은 부분이 분할을 할 수 있을 정도라면
-            PUT(HDRP(oldptr),PACK(asize,1)); // 지금부분 헤더 size 갱신
-            PUT(FTRP(oldptr),PACK(asize,1)); // 지금부분 푸터 size갱신
-            newptr=oldptr;
-            PUT(HDRP(NEXT_BLKP(newptr)),PACK(oldSize-asize,0)); //자르고 남은 부분 헤더 설정
-            PUT(FTRP(NEXT_BLKP(newptr)),PACK(oldSize-asize,0)); // 자르고 남은 부분 푸터 설정
-            last_bp=NEXT_BLKP(newptr); //last_bp 설정
+            PUT(HDRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
+            PUT(FTRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
+            newptr=oldptr; // newptr이 결과값인데 변한게 없으니까 그냥 oldptr받아오기
+            place(newptr,asize); // 분할하기 전 통 크기 블락에 원하는 만큼만 넣고 나머지는 free
             return newptr;
         }
         else{ // 분할할수 없다면 그냥 반환
@@ -182,67 +180,39 @@ void *mm_realloc(void *ptr, size_t size)
         }
     }
     else{ //늘어나야 한다면
+        if(!GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전 블록이 free 가능하고, 추가로필요한 블록을 이전블록에서 채워줄수 있을 때
+            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)));
+            char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
+            memmove(prev_bp,oldptr,oldSize-DSIZE);   
+            newptr=prev_bp;
+            PUT(HDRP(newptr),PACK(csize,0));
+            PUT(FTRP(newptr) ,PACK(csize,0));
+            place(newptr,asize); 
+            return newptr;
+        }
+        if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))){ //다음 블록이 free 가능하고, 추가로 필요한 블록을 다음블록과 함께 담아낼 수 있을 때
+            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
+            newptr=oldptr;
+            PUT(HDRP(newptr),PACK(csize,0));
+            PUT(FTRP(newptr) ,PACK(csize,0));
+            place(newptr,asize);
+            return newptr;
+        }
         if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr)))&& !GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
             csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
             char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
-            memmove(prev_bp,oldptr,oldSize-DSIZE);    
-            if(csize-asize>=2*DSIZE){ // 분할이 가능하다면
-                PUT(HDRP(prev_bp),PACK(asize,1)); //이전 블록이 가능하니까 시작지점은 이전 블록임
-                PUT(FTRP(prev_bp) ,PACK(asize,1));    
-                newptr=prev_bp; //payload주소니까 header에서 WSIZE만큼 더함
-                
-                PUT(HDRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-                PUT(FTRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-            }
-            else{ //분할이 안된다면 그냥 사이즈 그대로
-                PUT(HDRP(prev_bp),PACK(csize,1));
-                PUT(FTRP(prev_bp),PACK(csize,1));
-                newptr=prev_bp;
-            }
-            last_bp=NEXT_BLKP(newptr);
+            memmove(prev_bp,oldptr,oldSize-DSIZE);
+            newptr=prev_bp;
+            PUT(HDRP(newptr),PACK(csize,0));
+            PUT(FTRP(newptr) ,PACK(csize,0));
+            place(newptr,asize);
+            return newptr;
         }
-        else if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))){ //다음 블록만 free 가능하고, 추가로 필요한 블록을 다음블록과 함께 담아낼 수 있을 때
-            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
-            if(csize-asize>=2*DSIZE) { // 분할이 가능하다면
-                PUT(HDRP(oldptr),PACK(asize,1));
-                PUT(FTRP(oldptr),PACK(asize,1));
-                newptr=oldptr;
-                PUT(HDRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-                PUT(FTRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-            }
-            else{ // 분할이 안되면 그낭 사이즈 그대로
-                PUT(HDRP(oldptr),PACK(csize,1));
-                PUT(FTRP(oldptr),PACK(csize,1));
-                newptr=oldptr;
-            }
-            last_bp=NEXT_BLKP(newptr);
-        }
-        else if(GET_ALLOC(HDRP(NEXT_BLKP(oldptr)))&& !GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전 블록만 free 가능하고, 추가로필요한 블록을 이전블록에서 채워줄수 있을 때
-            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)));
-            char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
-            memmove(prev_bp,oldptr,oldSize-DSIZE);    
-            if(csize-asize>=2*DSIZE){ // 분할이 가능하다면
-                PUT(HDRP(prev_bp),PACK(asize,1)); //이전 블록이 가능하니까 시작지점은 이전 블록임
-                PUT(FTRP(prev_bp) ,PACK(asize,1));    
-                newptr=prev_bp; //payload주소니까 header에서 WSIZE만큼 더함
-                
-                PUT(HDRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-                PUT(FTRP(NEXT_BLKP(newptr)),PACK(csize-asize,0));
-            }
-            else{ //분할이 안된다면 그냥 사이즈 그대로
-                PUT(HDRP(prev_bp),PACK(csize,1));
-                PUT(FTRP(prev_bp),PACK(csize,1));
-                newptr=prev_bp;
-            }
-            last_bp=NEXT_BLKP(newptr);
-        }
-        else{
-            newptr = mm_malloc(size); // 이사갈 블록을 새로 할당받습니다.
-            if (newptr == NULL) // NULL 받으면 못 받은거라 리턴
-                return NULL;        
-            memmove(newptr, oldptr, oldSize-DSIZE); //oldptr에서 copysize만큼의 값을 newptr로 복사
-            mm_free(oldptr); //oldptr에 해당하는 블록을 free
-        }
+        newptr = mm_malloc(size); // 이사갈 블록을 새로 할당받습니다.
+        if (newptr == NULL) // NULL 받으면 못 받은거라 리턴
+            return NULL;        
+        memmove(newptr, oldptr, oldSize-DSIZE); //oldptr에서 copysize만큼의 값을 newptr로 복사
+        mm_free(oldptr); //oldptr에 해당하는 블록을 free
         return newptr;
     }
 }
@@ -325,7 +295,7 @@ static void place(char* bp, size_t asize){ // 이 함수는 블록을 받아서 
         bp=NEXT_BLKP(bp);// asize기준 남는 블락의 payload쪽으로 이동
         PUT(HDRP(bp),PACK(csize-asize,0)); // 남는크기만큼 free block의 헤더 설정
         PUT(FTRP(bp),PACK(csize-asize,0)); // 남는 크기만큼 free block의 풋터 설정
-        last_bp=bp; //블락 설정할때마다 last_bp 다음블락으로 옮기기
+        last_bp=coalesce(bp);
     }
     else{ //남는 공간이 없으면 그냥 넣기
         PUT(HDRP(bp),PACK(csize,1));
