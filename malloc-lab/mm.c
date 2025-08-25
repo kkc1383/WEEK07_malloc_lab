@@ -136,24 +136,31 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr; // 지금 ptr부터 시작한 블록에서, size만큼으로 바꾸고 싶다.
-    void *newptr; // 새로 할당받을 블록의 포인터
-    size_t copySize; //현재 블록의 size
+    void *oldptr = ptr;   // 이전 포인터
+    void *newptr;         // 새로 메모리 할당할 포인터
 
-    copySize=GET_SIZE((HDRP(oldptr)))-DSIZE; // 사용자는 size를 payload 사이즈로 알고 있음 그래서 지금 쓰고 있는 블록의 payload size와 비교해야함
-    // copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE); 
-    if (size <= copySize) //사이즈를 줄일 수가 있나? 아니 줄일거면 굳이 이사 해야하나? 연산량 줄이기 위해서 이런건 걍 무시하는게 어떤가 싶음
-        return ptr;
+    size_t originsize = GET_SIZE(HDRP(oldptr)); // 원본 사이즈
+    size_t newsize    = size + DSIZE;           // 새 사이즈
 
-    newptr = mm_malloc(size); // 이사갈 블록을 새로 할당받습니다.
-    if (newptr == NULL) // NULL 받으면 못 받은거라 리턴
-        return NULL;
-    
-    memcpy(newptr, oldptr, copySize); //oldptr에서 copysize만큼을 의 값을 newptr로 복사
-    mm_free(oldptr); //oldptr에 해당하는 블록을 free
-    return newptr; //이사간 주소를 반환
+    // size 가 더 작은 경우
+    if (newsize <= originsize) {
+        return oldptr;
+    } else {
+        size_t addSize = originsize + GET_SIZE(HDRP(NEXT_BLKP(oldptr))); // 추가 사이즈 -> 헤더 포함 사이즈
+        if (!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && (newsize <= addSize)) { // 가용 블록이고 사이즈 충분
+            PUT(HDRP(oldptr), PACK(addSize, 1)); // 새로운 헤더
+            PUT(FTRP(oldptr), PACK(addSize, 1)); // 새로운 푸터
+            return oldptr;
+        } else {
+            newptr = mm_malloc(newsize);
+            if (newptr == NULL)
+                return NULL;
+            memmove(newptr, oldptr, newsize); // memcpy 사용 시, memcpy-param-overlap 발생
+            mm_free(oldptr);
+            return newptr;
+        }
+    }
 }
-
 static void* extend_heap(size_t words){
     char *bp; //추가 생성된 힙 메모리 시작부분의 payload의 시작 주소
     size_t size; // 입력받은 word를 2의 배수로 align한 값의 총 바이트 수
