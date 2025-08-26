@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<9) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<14) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -111,7 +111,7 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     
     if((long)(bp=mem_sbrk(asize))==-1)
         return NULL;
-    printf("extend %lu \n",asize);
+    // printf("extend %lu \n",asize);
     size_t epil_prev_free=GET_PREV_FREE(HDRP(bp));
     PUT(HDRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 헤더
     PUT(FTRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
@@ -302,11 +302,32 @@ static void addFreeBlock(void* bp){
         PUT_NEXT(bp,NULL); // 다음도 없음
         fl_head=bp; // newptr을 헤드로 임명
     }
-    else{ // free list에 하나라도 노드가 있다면, LIFO니까 맨 앞에 추가
-        PUT_PREV(bp,NULL); // 맨 앞에 올 노드니까 이전은 없고
-        PUT_NEXT(bp,fl_head); // 다음 노드가 원래 헤드였던 노드
-        PUT_PREV(fl_head,bp); // 그리고 원래 헤드였던 노드의 이전이 추가한 블락이고
-        fl_head=bp;// 추가한 블락을 헤드로 임명
+    else{ //자기 주소를 찾아가야함.
+        if(bp<=fl_head){ // 주소 맨 앞에 와야할 경우
+            PUT_PREV(bp,NULL); // 맨 앞에 올 노드니까 이전은 없고
+            PUT_NEXT(bp,fl_head); // 다음 노드가 원래 헤드였던 노드
+            PUT_PREV(fl_head,bp); // 그리고 원래 헤드였던 노드의 이전이 추가한 블락이고
+            fl_head=bp;// 추가한 블락을 헤드로 임명
+        }
+        else{
+            void* iter;
+            void* prev;
+            for(iter=fl_head;iter!=NULL;iter=GET_NEXT(iter)){
+                prev=iter;
+                if(GET_NEXT(iter)!=NULL && bp<GET_NEXT(iter)){ //나보다 큰 주소를 만났으면, 그게 iter의 next, iter과 iternext 사이에 들어오면 됨
+                    PUT_PREV(bp,iter);
+                    PUT_NEXT(bp,GET_NEXT(iter));
+                    PUT_PREV(GET_NEXT(iter),bp);
+                    PUT_NEXT(iter,bp);
+                    return;
+                }
+            }
+            //맨 끝에 와야하는 경우
+            PUT_PREV(bp,prev);
+            PUT_NEXT(bp,NULL);
+            PUT_NEXT(prev,bp);
+            return;
+        }
     }
 }
 
