@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<14) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<8) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -76,13 +76,13 @@ static void deleteFreeBlock(void* bp);
 
 int mm_init(void){
     fl_head=NULL;
-    if((heap_listp=mem_sbrk(4*WSIZE))==(void *)-1)
+    if((heap_listp=mem_sbrk(2*WSIZE))==(void *)-1)
         return -1;
     PUT(heap_listp,0);
-    PUT(heap_listp+(1*WSIZE),PACK(DSIZE,1,0));
+    // PUT(heap_listp+(1*WSIZE),PACK(DSIZE,1,0));
     PUT(heap_listp+(2*WSIZE),PACK(DSIZE,1,0));
-    PUT(heap_listp+(3*WSIZE),PACK(0,1,0));
-    heap_listp+=2*WSIZE;
+    // PUT(heap_listp+(3*WSIZE),PACK(0,1,0));
+    heap_listp+=1*WSIZE;
 
     if(extend_heap(CHUNKSIZE)==NULL)
         return -1;
@@ -169,11 +169,6 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
 }
 static void *find_fit(size_t asize){
     char* bp;
-    // //일단 first fit;
-    // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
-    //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
-    //         return bp;
-    // }
 
     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
         if(asize<=GET_SIZE(HDRP(bp)))
