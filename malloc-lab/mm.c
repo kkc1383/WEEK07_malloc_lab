@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<8) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<12) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -58,10 +58,10 @@ team_t team = {
 
 #define ALIGN(size) ((MAX(size,3*DSIZE) + (ALIGNMENT-1)) & ~0x7) // 주어진 값을 정렬기준에만 맞게 올림해줌 그래서 함수에서 ALIGN(size+WSIZE)로 호출해야 함
 
-#define GET_NEXT(bp) (*(void **)(bp))
-#define GET_PREV(bp) (*(void **)((char *)(bp)+DSIZE))
-#define PUT_NEXT(bp,ptr) (*(void **)(bp)=(void *)(ptr))
-#define PUT_PREV(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
+#define GET_PREV(bp) (*(void **)(bp))
+#define GET_NEXT(bp) (*(void **)((char *)(bp)+DSIZE))
+#define PUT_PREV(bp,ptr) (*(void **)(bp)=(void *)(ptr))
+#define PUT_NEXT(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
 
 
 
@@ -117,7 +117,7 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     PUT(FTRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1,2));//새로 생성된 에필로그 블록, 추가 생성된 블락은 free니까 prev_free는 1(0x2)로 세팅
     
-    return (!epil_prev_free) ? bp : coalesce(bp); // 추가로 생성된 free block 이전이 free가 아니었으면 그냥 보내고, freeblock이었으면 병합하기
+    return coalesce(bp); // 추가로 생성된 free block 이전이 free가 아니었으면 그냥 보내고, freeblock이었으면 병합하기
 }
 
 void mm_free(void * ptr){
@@ -183,10 +183,12 @@ static void *find_fit(size_t asize){
 }
 
 static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하려고 하기 때문에 이전 블록은 무조건 alloc이다.
-    size_t csize=GET_SIZE(HDRP(bp));
+    size_t csize=GET_SIZE(HDRP(bp)); //내가 넣으려는 free block
     //free블록을 사용하니까 deletefreeblock해야함
+    
     deleteFreeBlock(bp);
     if((csize-asize)>=(3*DSIZE)){ // place하고 남는 블락으로 free를 만들 수 있다면
+        // printf("splited : %lu, %lu\n",csize,asize);
         PUT(HDRP(bp), PACK(asize,1,0));//place할 블록의 헤더를 설정
         //alloc 블록이라 풋터는 필요없음
         bp=NEXT_BLKP(bp);
@@ -199,6 +201,7 @@ static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하�
         addFreeBlock(bp);
     }
     else{ // place하고 남은 블락으로 free를 만들 수 없다면
+        // printf("just put : %lu, %lu\n",csize,asize);
         PUT(HDRP(bp), PACK(csize,1,0));
         //alloc 블록이라 풋터는 필요없음
         SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0);//다음 블락의 prev_free 설정

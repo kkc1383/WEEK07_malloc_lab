@@ -6,7 +6,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/mdriver",
-      "args": ["-V", "-f", "traces/amptjp-bal.rep"],   // 원하는 트레이스로 바꿔도 됨
+      "args": ["-V", "-f", "traces/cccp-bal.rep"],   // 원하는 트레이스로 바꿔도 됨
       "cwd": "${workspaceFolder}",
       "stopAtEntry": false,
       "MIMode": "gdb",
