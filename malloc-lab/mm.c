@@ -58,6 +58,10 @@ team_t team = {
 
 #define ALIGN(size) ((MAX(size,3*DSIZE) + (ALIGNMENT-1)) & ~0x7) // 주어진 값을 정렬기준에만 맞게 올림해줌 그래서 함수에서 ALIGN(size+WSIZE)로 호출해야 함
 
+#define GET_NEXT(bp) (*(void **)(bp))
+#define GET_PREV(bp) (*(void **)((char *)(bp)+DSIZE))
+#define PUT_NEXT(bp,ptr) (*(void **)(bp)=(void *)(ptr))
+#define PUT_PREV(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
 
 
 
@@ -67,6 +71,8 @@ static void* extend_heap(size_t asize);
 static void* coalesce(void* bp);
 static void *find_fit(size_t asize);
 static void place(void *bp, size_t asize);
+static void addFreeBlock(void* bp);
+static void deleteFreeBlock(void* bp);
 
 int mm_init(void){
     fl_head=NULL;
@@ -124,7 +130,7 @@ void mm_free(void * ptr){
     coalesce(bp);
 }
 
-static void* coalesce(void *bp){
+static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 난 블록이 리턴
     size_t prev_alloc=!GET_PREV_FREE(HDRP(bp)); // 이전 블록이 할당되어있으면 1, free면 0
     size_t next_alloc=GET_ALLOC(HDRP(NEXT_BLKP(bp)));
     size_t csize=GET_SIZE(HDRP(bp));
@@ -133,17 +139,21 @@ static void* coalesce(void *bp){
         //양쪽이 다 alloc이면 그냥 리턴
     }
     else if(prev_alloc&&!next_alloc){ // 다음 블록만 병합하는 경우
+        deleteFreeBlock(NEXT_BLKP(bp));
         csize+=GET_SIZE(HDRP(NEXT_BLKP(bp)));
         PUT(HDRP(bp),PACK(csize,0,0)); // 다음 블록과 병합한 free블록의 헤더
         PUT(FTRP(bp), PACK(csize,0,0)); // 다음 블록과 병합한 free 블록의 풋터
     }
     else if(!prev_alloc&&next_alloc){ // 이전 블록만 병합하는 경우
+        deleteFreeBlock(PREV_BLKP(bp));
         csize+=GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(FTRP(bp),PACK(csize,0,0));
         PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0)); //prev_free가 0인이유는 이전블록이 free해서 병합했는데 더 이전 블록도 free 일 수가 없음.
         bp=PREV_BLKP(bp);
     }
     else{ // 이전, 다음 블록 모두 병합하는 경우
+        deleteFreeBlock(PREV_BLKP(bp));
+        deleteFreeBlock(NEXT_BLKP(bp));
         csize+=GET_SIZE(HDRP(NEXT_BLKP(bp)))+GET_SIZE(HDRP(PREV_BLKP(bp)));
         PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0));
         PUT(FTRP(NEXT_BLKP(bp)),PACK(csize,0,0));
@@ -153,28 +163,29 @@ static void* coalesce(void *bp){
     // 새로 이사왔으니 다음 블록에게 prev_free 세팅 해주어야함
     SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
     // free 블록 하나가 생긴거니까 addfreeblock도 해주어야함.
+    addFreeBlock(bp);
 
     return bp;
 }
 static void *find_fit(size_t asize){
     char* bp;
-    //일단 first fit;
-    for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
-        if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
-            return bp;
-    }
-
-    // for(bp=fl_head;bp!=NULL;bp=NEXT_FL(bp)){
-    //     if(asize<=GET_SIZE(HDRP(bp)))
+    // //일단 first fit;
+    // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
+    //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
     //         return bp;
     // }
+
+    for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
+        if(asize<=GET_SIZE(HDRP(bp)))
+            return bp;
+    }
     return NULL;
 }
 
 static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하려고 하기 때문에 이전 블록은 무조건 alloc이다.
     size_t csize=GET_SIZE(HDRP(bp));
     //free블록을 사용하니까 deletefreeblock해야함
-
+    deleteFreeBlock(bp);
     if((csize-asize)>=(3*DSIZE)){ // place하고 남는 블락으로 free를 만들 수 있다면
         PUT(HDRP(bp), PACK(asize,1,0));//place할 블록의 헤더를 설정
         //alloc 블록이라 풋터는 필요없음
@@ -185,6 +196,7 @@ static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하�
         //다음 블락의 prev_free 1로 만들기
         SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
         //add freeblock하기
+        addFreeBlock(bp);
     }
     else{ // place하고 남은 블락으로 free를 만들 수 없다면
         PUT(HDRP(bp), PACK(csize,1,0));
@@ -208,5 +220,32 @@ void* mm_realloc(void* ptr, size_t size){
         memcpy(newbp,bp,csize-WSIZE);
         mm_free(bp);
         return newbp;
+    }
+}
+
+static void addFreeBlock(void* bp){
+    if(fl_head==NULL){ // free list에 아무것도 없다면
+        PUT_PREV(bp,NULL); // 시작 노드의 이전도 없고
+        PUT_NEXT(bp,NULL); // 다음도 없음
+        fl_head=bp; // newptr을 헤드로 임명
+    }
+    else{ // free list에 하나라도 노드가 있다면, LIFO니까 맨 앞에 추가
+        PUT_PREV(bp,NULL); // 맨 앞에 올 노드니까 이전은 없고
+        PUT_NEXT(bp,fl_head); // 다음 노드가 원래 헤드였던 노드
+        PUT_PREV(fl_head,bp); // 그리고 원래 헤드였던 노드의 이전이 추가한 블락이고
+        fl_head=bp;// 추가한 블락을 헤드로 임명
+    }
+}
+
+static void deleteFreeBlock(void* bp){
+    if(!fl_head||!bp) return; // 삭제할건데 아무 노드도 없으면 그냥 리턴
+    if(fl_head==bp){ // 헤드 노드를 삭제 할 경우
+        fl_head=GET_NEXT(bp);// 헤드 다음의 노드가 헤드가 될테니
+        if(!fl_head) return; // 리스트가 하나밖에 없는 경우
+        else PUT_PREV(fl_head,NULL); // 새로운 헤드의 이전은 없어야 하니 널로 설정
+    }
+    else{
+        PUT_NEXT(GET_PREV(bp),GET_NEXT(bp)); // 이전노드의 다음이 삭제할 노드의 다음
+        if(GET_NEXT(bp)) PUT_PREV(GET_NEXT(bp),GET_PREV(bp)); // 다음 노드의 이전이 삭제할 노드의 이전
     }
 }
