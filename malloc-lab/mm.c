@@ -44,7 +44,7 @@ team_t team = {
 #define ALIGNMENT 8 //정렬 기준: 8byte = 2*word
 
 /* rounds up to the nearest multiple of ALIGNMENT */
-#define ALIGN(size) ((MAX(size,3*DSIZE)  + (ALIGNMENT - 1)) & ~0x7) //8byte 기준으로 정렬, 올림, (ALIGNMENT-1)을 더해주고 나누어서 0이 아니라면 무조건 몫이 1이 오름 bias 개념
+#define ALIGN(size) ((MAX(size,5*WSIZE)+ WSIZE  + (ALIGNMENT - 1)) & ~0x7) //사용자가 요청한 size를 바탕으로 헤더를 포함한 우리가 알아야하는 크기를 나타냄
 
 #define MAX(x,y) ((x) > (y) ? (x) : (y)) // 둘 중에 큰 값
 
@@ -85,13 +85,13 @@ int mm_init(void)
 {
     heap_listp=NULL;
     fl_head=NULL;
-    if((heap_listp=mem_sbrk(4*WSIZE))== (void *)-1) // sbrk 함수를 통해 첫 4byte(패딩,프롤로그,에필로그)를 할당받기, 안되면 리턴
+    if((heap_listp=mem_sbrk(2*WSIZE))== (void *)-1) // sbrk 함수를 통해 첫 4byte(패딩,프롤로그,에필로그)를 할당받기, 안되면 리턴
         return 1;
-    PUT(heap_listp,0); // 우선 heap_listp가 우리가 이제부터 사용할 힙메모리의 시작지점이므로 맨 앞 1워드 패딩을 먼저 넣음
-    PUT(heap_listp + (1*WSIZE), PACK(WSIZE,1)); // 노 풋터라서 굳이 초기가 4워드가 아니어도 됨. 바로 프롤로그 헤더부터 시작
-    PUT(heap_listp + (2*WSIZE), PACK(DSIZE,1)); // 2워드 패딩 다음에 프롤로그 풋터를 넣음
-    PUT(heap_listp + (3*WSIZE), PACK(0,1)); // 그리고 프롤로그헤더 다음 바로 에필로그 와도 됨
-    heap_listp+=2*WSIZE; // heap_listp는 원래 프롤로그 헤더 뒤에 있어야 하므로 이동
+    // PUT(heap_listp,0); // 우선 heap_listp가 우리가 이제부터 사용할 힙메모리의 시작지점이므로 맨 앞 1워드 패딩을 먼저 넣음
+    PUT(heap_listp + 0, PACK(WSIZE,1)); // 노 풋터라서 굳이 초기가 4워드가 아니어도 됨. 바로 프롤로그 헤더부터 시작
+    // PUT(heap_listp + (2*WSIZE), PACK(DSIZE,1)); // 2워드 패딩 다음에 프롤로그 풋터를 넣음
+    PUT(heap_listp + (1*WSIZE), PACK(0,1)); // 그리고 프롤로그헤더 다음 바로 에필로그 와도 됨
+    heap_listp+=WSIZE; // heap_listp는 원래 프롤로그 헤더 뒤에 있어야 하므로 이동
 
     if(extend_heap(CHUNKSIZE/WSIZE)==NULL) // 초기세팅이 완료되었으니 1청크만큼 블록을 추가할당받음(이제부터 쓸거니까 미리 받아놓음) 안되면 NULL 리턴
         return -1;
@@ -106,7 +106,7 @@ void *mm_malloc(size_t size)
 {
     if(!size) return NULL; //일단 size가 0을 할당받으려한다면 NULL 리턴
 
-    int asize = ALIGN(size)+DSIZE; // no footer라서 헤더값만 더했음
+    int asize = ALIGN(size); // no footer라서 헤더값만 더했음 최솟값은 6word, 더 넘어간다면 헤더값만 더하고 8byte align
     char *bp; // payload 시작 위치를 가리킴
     if ((bp=find_fit(asize))!=NULL){ // asize만큼 할당받을 블록의 위치를 받음, 만약 없다면 pass 아래로 감
         place(bp,asize); // 그 위치에 bp를 박음
@@ -114,7 +114,8 @@ void *mm_malloc(size_t size)
     }
 
     size_t extendsize=MAX(asize,CHUNKSIZE); // 추가 메모리를 할당받아야 한다면, 적어도 CHUNKSIZE만큼 받고 싶기에 둘중 큰 값을 설정함
-    if((bp=extend_heap(extendsize/WSIZE))!=NULL){ // extend_heap 함수를 호출해서 추가하고 싶은 word크기만큼 넣고, 만약 NULL이 반환되면 NULL(더이상 메모리 할당 안됨)
+    if((bp=extend_heap(extendsize))!=NULL){ // extend_heap 함수를 호출해서 추가하고 싶은 word크기만큼 넣고, 만약 NULL이 반환되면 NULL(더이상 메모리 할당 안됨)
+        //이때 bp는 free block으로서 모든 조건을 갖추고 있다고 생각함.
         place(bp,asize); // 그 위치에 bp를 박음
         return bp;
     }
@@ -235,23 +236,23 @@ void *mm_realloc(void *ptr, size_t size)
     //     return newptr;
     // }
 }
-static void* extend_heap(size_t words){
+static void* extend_heap(size_t asize){
     char *bp; //추가 생성된 힙 메모리 시작부분의 payload의 시작 주소
-    size_t size; // 입력받은 word를 2의 배수로 align한 값의 총 바이트 수
 
-    size=(words%2) ? (words+1) * WSIZE : words * WSIZE; // word가 짝수면 그냥 *4byte 홀수면 1더하고 *4byte
-    if((long)(bp=mem_sbrk(size))==-1) //필요한 size만큼 sbrk 함수에게 추가 메모리 할당 요청, 그러면 payload시작 주소를 줌, bp가 포인터이므로 size가 같고 정수비교를 위해 long으로 캐스팅 함
+    if((long)(bp=mem_sbrk(asize))==-1) //필요한 size만큼 sbrk 함수에게 추가 메모리 할당 요청, 그러면 payload시작 주소를 줌, bp가 포인터이므로 size가 같고 정수비교를 위해 long으로 캐스팅 함
         return NULL;
     // 여기서 중요한점 여기서 bp는 힙의 맨 끝이됨 다르게 말하면 원래 에필로그 블록의 끝 주소에 해당함
     // 그래서 그다음 줄의 HDRP(bp)를 통해서 에필로그 블록의 시작부분으로 가게 되는 것이고
     // 그래서 마지막에 에필로그 블록 한칸만큼의 공간이 남아서 그곳에 새로운 에필로그 블록을 생성하는 것임 
     // 그리고 새로 완료하게 되면 new freeblock의 payload부분이 bp가 되는거임
-
-    size_t prev_free_bit=GET_PREV_FREE(HDRP(bp));
-    PUT(HDRP(bp), PACK(size,0)); //추가 메모리 할당받은 곳은 free니까 헤더에 size와 alloc_bit=0을 새김
-    PUT(FTRP(bp), PACK(size,0));//추가 메모리 할당받은 곳은 free니까 풋터에 size와 alloc_bit=0을 새김 , free 블록 만드는데라 풋터가 필요함
+ 
+    size_t prev_free_bit=GET_PREV_FREE(HDRP(bp));//여기서 버그 많이 날 거 같음
+    PUT(HDRP(bp), PACK(asize,0)); //추가 메모리 할당받은 곳은 free니까 헤더에 size와 alloc_bit=0을 새김
+    PUT(FTRP(bp), PACK(asize,0));//추가 메모리 할당받은 곳은 free니까 풋터에 size와 alloc_bit=0을 새김 , free 블록 만드는데라 풋터가 필요함
+    SET_PREV_FREE(HDRP(bp),prev_free_bit); // 에필로그헤더의 prev_free 비트를 그대로 받아 추가할당 블록 헤더에 기록
+    SET_PREV_FREE(FTRP(bp),prev_free_bit); // 에필로그헤더의 prev_free 비트를 그대로 받아 추가할당 블록 풋터에 기록
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1)); // 새로운 에필로그 블록을 생성
-    SET_PREV_FREE(HDRP(bp),prev_free_bit); // 에필로그헤더의 prev_free 비트를 그대로 받아 기록
+    // SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),1); // 에필로그블록에 prev_free 비트 기록은 coalesce에서 해줌
     return coalesce(bp); //추가로 할당받은 블록을 기준으로 병합, 오른쪽은 당연히 안되겠지만 왼쪽 확인해서 병합
 }
 
