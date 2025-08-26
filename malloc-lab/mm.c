@@ -135,86 +135,89 @@ void mm_free(void *ptr)
  */
 void *mm_realloc(void *ptr, size_t size)
 {
-    // void *oldptr = ptr;   // 이전 포인터
-    // void *newptr;         // 새로 메모리 할당할 포인터
+    void *oldptr = ptr;   // 이전 포인터
+    void *newptr;         // 새로 메모리 할당할 포인터
 
-    // size_t originsize = GET_SIZE(HDRP(oldptr)); // 원본 사이즈
-    // size_t newsize    = size + DSIZE;           // 새 사이즈
+    size_t originsize = GET_SIZE(HDRP(oldptr)); // 원본 사이즈
+    size_t newsize    = ALIGN(size);           // 새 사이즈+정렬필요
+    size_t copySize = originsize-DSIZE;
 
-    // // size 가 더 작은 경우
-    // if (newsize <= originsize) {
-    //     return oldptr;
-    // } else {
-    //     size_t addSize = originsize + GET_SIZE(HDRP(NEXT_BLKP(oldptr))); // 추가 사이즈 -> 헤더 포함 사이즈
-    //     if (!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && (newsize <= addSize)) { // 가용 블록이고 사이즈 충분
-    //         PUT(HDRP(oldptr), PACK(addSize, 1)); // 새로운 헤더
-    //         PUT(FTRP(oldptr), PACK(addSize, 1)); // 새로운 푸터
-    //         return oldptr;
-    //     } else {
-    //         newptr = mm_malloc(newsize);
-    //         if (newptr == NULL)
-    //             return NULL;
-    //         memmove(newptr, oldptr, newsize); // memcpy 사용 시, memcpy-param-overlap 발생
-    //         mm_free(oldptr);
+    // size 가 더 작은 경우
+    if (newsize <= originsize) {
+        return oldptr;
+    } else {
+        size_t addSize = originsize + GET_SIZE(HDRP(NEXT_BLKP(oldptr))); // 추가 사이즈 -> 헤더 포함 사이즈
+        if (!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && (newsize <= addSize)) { // 가용 블록이고 사이즈 충분
+            //합친 블록을 free블록으로 설정해놓고 place 돌림
+            PUT(HDRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 헤더를 free로 함
+            PUT(FTRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 풋터를 free로 함
+            place(oldptr,newsize);
+            return oldptr;
+        } else {
+            newptr = mm_malloc(newsize);
+            if (newptr == NULL)
+                return NULL;
+            memmove(newptr, oldptr, copySize); // memcpy 사용 시, memcpy-param-overlap 발생
+            mm_free(oldptr);
+            return newptr;
+        }
+    }
+    // if(!ptr) return mm_malloc(size);
+    // if(!size) { mm_free(ptr); return NULL;}
+
+    // char* oldptr=ptr;
+    // char* newptr=NULL;
+    // size_t oldSize=GET_SIZE(HDRP(ptr));
+    // size_t csize; // 이건 전체 크기 값
+    // size_t asize=ALIGN(size); // 요청받은 size를 align에 맞춘 값 + 헤더 풋터 더한 값
+    // if(asize<=oldSize){  //size가 줄어들어야 한다면
+    //     if(oldSize-asize>=2*DSIZE){//줄어들고 남은 부분이 분할을 할 수 있을 정도라면
+    //         PUT(HDRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
+    //         PUT(FTRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
+    //         newptr=oldptr; // newptr이 결과값인데 변한게 없으니까 그냥 oldptr받아오기
+    //         place(newptr,asize); // 분할하기 전 통 크기 블락에 원하는 만큼만 넣고 나머지는 free
     //         return newptr;
     //     }
+    //     else{ // 분할할수 없다면 그냥 반환
+    //         return ptr;
+    //     }
     // }
-    if(!ptr) return mm_malloc(size);
-    if(!size) { mm_free(ptr); return NULL;}
-
-    char* oldptr=ptr;
-    char* newptr=NULL;
-    size_t oldSize=GET_SIZE(HDRP(ptr));
-    size_t csize; // 이건 전체 크기 값
-    size_t asize=ALIGN(size); // 요청받은 size를 align에 맞춘 값 + 헤더 풋터 더한 값
-    if(asize<=oldSize){  //size가 줄어들어야 한다면
-        if(oldSize-asize>=2*DSIZE){//줄어들고 남은 부분이 분할을 할 수 있을 정도라면
-            PUT(HDRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
-            PUT(FTRP(oldptr),PACK(oldSize,0)); // 분할하기전 통 크기 블락을 free처리
-            newptr=oldptr; // newptr이 결과값인데 변한게 없으니까 그냥 oldptr받아오기
-            place(newptr,asize); // 분할하기 전 통 크기 블락에 원하는 만큼만 넣고 나머지는 free
-            return newptr;
-        }
-        else{ // 분할할수 없다면 그냥 반환
-            return ptr;
-        }
-    }
-    else{ //늘어나야 한다면
-        if(!GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전 블록이 free 가능하고, 추가로필요한 블록을 이전블록에서 채워줄수 있을 때
-            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)));
-            char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
-            memmove(prev_bp,oldptr,oldSize-DSIZE);   
-            newptr=prev_bp;
-            PUT(HDRP(newptr),PACK(csize,0));
-            PUT(FTRP(newptr) ,PACK(csize,0));
-            place(newptr,asize); 
-            return newptr;
-        }
-        if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))){ //다음 블록이 free 가능하고, 추가로 필요한 블록을 다음블록과 함께 담아낼 수 있을 때
-            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
-            newptr=oldptr;
-            PUT(HDRP(newptr),PACK(csize,0));
-            PUT(FTRP(newptr) ,PACK(csize,0));
-            place(newptr,asize);
-            return newptr;
-        }
-        if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr)))&& !GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
-            csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
-            char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
-            memmove(prev_bp,oldptr,oldSize-DSIZE);
-            newptr=prev_bp;
-            PUT(HDRP(newptr),PACK(csize,0));
-            PUT(FTRP(newptr) ,PACK(csize,0));
-            place(newptr,asize);
-            return newptr;
-        }
-        newptr = mm_malloc(size); // 이사갈 블록을 새로 할당받습니다.
-        if (newptr == NULL) // NULL 받으면 못 받은거라 리턴
-            return NULL;        
-        memmove(newptr, oldptr, oldSize-DSIZE); //oldptr에서 copysize만큼의 값을 newptr로 복사
-        mm_free(oldptr); //oldptr에 해당하는 블록을 free
-        return newptr;
-    }
+    // else{ //늘어나야 한다면
+    //     if(!GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전 블록이 free 가능하고, 추가로필요한 블록을 이전블록에서 채워줄수 있을 때
+    //         csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)));
+    //         char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
+    //         memmove(prev_bp,oldptr,oldSize-DSIZE);   
+    //         newptr=prev_bp;
+    //         PUT(HDRP(newptr),PACK(csize,0));
+    //         PUT(FTRP(newptr) ,PACK(csize,0));
+    //         place(newptr,asize); 
+    //         return newptr;
+    //     }
+    //     if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))){ //다음 블록이 free 가능하고, 추가로 필요한 블록을 다음블록과 함께 담아낼 수 있을 때
+    //         csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
+    //         newptr=oldptr;
+    //         PUT(HDRP(newptr),PACK(csize,0));
+    //         PUT(FTRP(newptr) ,PACK(csize,0));
+    //         place(newptr,asize);
+    //         return newptr;
+    //     }
+    //     if(!GET_ALLOC(HDRP(NEXT_BLKP(oldptr)))&& !GET_ALLOC(HDRP(PREV_BLKP(oldptr)))&& asize-oldSize<=GET_SIZE(HDRP(NEXT_BLKP(oldptr)))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
+    //         csize=GET_SIZE(HDRP(oldptr))+GET_SIZE(HDRP(PREV_BLKP(oldptr)))+GET_SIZE(HDRP(NEXT_BLKP(oldptr)));
+    //         char* prev_bp=PREV_BLKP(oldptr); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
+    //         memmove(prev_bp,oldptr,oldSize-DSIZE);
+    //         newptr=prev_bp;
+    //         PUT(HDRP(newptr),PACK(csize,0));
+    //         PUT(FTRP(newptr) ,PACK(csize,0));
+    //         place(newptr,asize);
+    //         return newptr;
+    //     }
+    //     newptr = mm_malloc(size); // 이사갈 블록을 새로 할당받습니다.
+    //     if (newptr == NULL) // NULL 받으면 못 받은거라 리턴
+    //         return NULL;        
+    //     memmove(newptr, oldptr, oldSize-DSIZE); //oldptr에서 copysize만큼의 값을 newptr로 복사
+    //     mm_free(oldptr); //oldptr에 해당하는 블록을 free
+    //     return newptr;
+    // }
 }
 
 static void* extend_heap(size_t words){
