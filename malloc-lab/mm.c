@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<12) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<8) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -107,7 +107,7 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     
     size_t epil_prev_free=GET_PREV_FREE(HDRP(bp));
     PUT(HDRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 헤더
-    PUT(HDRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
+    PUT(FTRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1,2));//새로 생성된 에필로그 블록, 추가 생성된 블락은 free니까 prev_free는 1(0x2)로 세팅
     
     return (!epil_prev_free) ? bp : coalesce(bp); // 추가로 생성된 free block 이전이 free가 아니었으면 그냥 보내고, freeblock이었으면 병합하기
@@ -158,7 +158,7 @@ static void* coalesce(void *bp){
 static void *find_fit(size_t asize){
     char* bp;
     //일단 first fit;
-    for(bp=heap_listp;GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
+    for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
         if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
             return bp;
     }
@@ -182,26 +182,26 @@ static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하�
         PUT(FTRP(bp),PACK(csize-asize,0,0));//place하고 남은 블락을 free 처리 함(풋터 설정) 
         //이 free처리한 블락에 대해서
         //다음 블락의 prev_free 1로 만들기
-        SET_PREV_FREE(NEXT_BLKP(bp),0x2);
+        SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
         //add freeblock하기
     }
     else{ // place하고 남은 블락으로 free를 만들 수 없다면
         PUT(HDRP(bp), PACK(csize,1,0));
         //alloc 블록이라 풋터는 필요없음
-        SET_PREV_FREE(NEXT_BLKP(bp),0x0);//다음 블락의 prev_free 설정
+        SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0);//다음 블락의 prev_free 설정
     }
 }
 
 void* mm_realloc(void* ptr, size_t size){
     void* bp=ptr;
-    size_t asize=ALIGN(size+WSIZE);
-    size_t csize=GET_SIZE(HDRP(bp));
+    size_t asize=ALIGN(size+WSIZE); // 요청한 바이트의 요구 바이트 실체
+    size_t csize=GET_SIZE(HDRP(bp)); // 지금 내 공간의 크기
 
     if(asize<=csize)//확장을 할 필요가 없다면
         return bp; //그냥 그대로 반환한다.
     else{ // 확장을 해야 한다면
         //새로 이사갈 곳을 찾는다.
-        void* newbp=malloc(size); 
+        void* newbp=mm_malloc(size); 
         if(newbp==NULL)
             return NULL;
         memcpy(newbp,bp,csize-WSIZE);
