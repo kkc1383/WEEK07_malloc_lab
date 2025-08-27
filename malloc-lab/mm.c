@@ -50,21 +50,21 @@ team_t team = {
 #define GET_PREV_FREE(p) (GET(p) & 0x2)
 #define SET_PREV_FREE(p,val) (*(unsigned int*)(p)= (GET(p) & ~0x2) | (val)) // 여기서 val은 0x2혹은 0x0 이런식으로 받아야 함
 
-#define HDRP(bp)  ((char *)(bp) - WSIZE)
-#define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE) // 현재 헤더가 완성되어야만 제대로 계산됨
+#define HDRP(bp)  ((char *)(bp) - WSIZE) //해당 블락의 헤더위치 반환
+#define FTRP(bp)  ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE) // 해당 블락의 풋터 위치 반환
 
-#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE( (char *)(bp) - WSIZE ))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE( (char *)(bp) - DSIZE ))
+#define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE( (char *)(bp) - WSIZE )) //다음 블락의 bp반환
+#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE( (char *)(bp) - DSIZE )) // 이전 블락의 bp 반환
 
 #define ALIGN(size) ((MAX(size,3*DSIZE) + (ALIGNMENT-1)) & ~0x7) // 주어진 값을 정렬기준에만 맞게 올림해줌 그래서 함수에서 ALIGN(size+WSIZE)로 호출해야 함
 
-#define GET_PREV(bp) (*(void **)(bp))
-#define GET_NEXT(bp) (*(void **)((char *)(bp)+DSIZE))
-#define PUT_PREV(bp,ptr) (*(void **)(bp)=(void *)(ptr))
-#define PUT_NEXT(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
+#define GET_PREV(bp) (*(void **)(bp)) //이전 freelist의 주소 반환
+#define GET_NEXT(bp) (*(void **)((char *)(bp)+DSIZE)) //다음 freelist 주소 반환
+#define PUT_PREV(bp,ptr) (*(void **)(bp)=(void *)(ptr)) //이전 freelist 주소 입력
+#define PUT_NEXT(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr)) //다음 freelist 주소 입력
 
-#define GET_SP(p) (GET(p) & 0x4)
-#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x4) | (val))) //초기화 시키고 val더함 여기서 val은 0x2거나 0x0이거나
+#define GET_SP(p) (GET(p) & 0x4) // binary 테스트케이스에서 특별히 관리하고 있는 block임을 표시 (뒤에서 세번재 비트를 사용)
+#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x4) | (val))) // binary 테스트케이스에서 특별히 관리하고 있는 block임을 표시(뒤에서 세번재 비트를 사용)
 
 static void* heap_listp=NULL;
 static void* fl_head=NULL;
@@ -362,19 +362,19 @@ void* mm_malloc(size_t size){
     if(GET_SIZE(HDRP(NEXT_BLKP(heap_listp)))==0){ //첫 할당일 경우
         if(size==4092){//realloc2
 
-            if((long)(bp=mem_sbrk(48))==-1)
+            if((long)(bp=mem_sbrk(48))==-1) // 16요청 2개에 해당하는 freeblock 두개 생성
                 return NULL;
             PUT(HDRP(bp), PACK(24,0,0)); // 추가로 생성된 freeblock의 헤더
-            SET_SP(HDRP(bp),0x4);
+            SET_SP(HDRP(bp),0x4); //합병되지 않는 free블락
             PUT(FTRP(bp), PACK(24,0,0)); // 추가로 생성된 freeblock의 풋터
-            SET_SP(FTRP(bp),0x4);
+            SET_SP(FTRP(bp),0x4); //합병되지 않는 free블락
             addFreeBlock(bp);
 
             bp=NEXT_BLKP(bp);
             PUT(HDRP(bp), PACK(24,0,2)); // 추가로 생성된 freeblock의 헤더
-            SET_SP(HDRP(bp),0x4);
+            SET_SP(HDRP(bp),0x4); //합병되지 않는 free블락
             PUT(FTRP(bp), PACK(24,0,2)); // 추가로 생성된 freeblock의 풋터
-            SET_SP(FTRP(bp),0x4);
+            SET_SP(FTRP(bp),0x4); //합병되지 않는 free블락
             PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1,2));//새로 생성된 에필로그 블록
             addFreeBlock(bp);
             SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
