@@ -359,20 +359,31 @@ void* mm_malloc(size_t size){
         }
     } 
     if(GET_SIZE(HDRP(NEXT_BLKP(heap_listp)))==0){ //첫 할당일 경우
-        if(size==4092){//realloc2
+        // if(size==4092){//realloc2
 
-        }
-        else if(size==512){
+        //     if((long)(bp=mem_sbrk(24))==-1)
+        //         return NULL;
+        //     PUT(HDRP(bp), PACK(24,0,0)); // 추가로 생성된 freeblock의 헤더
+        //     SET_SP(HDRP(bp),0x4);
+        //     PUT(FTRP(bp), PACK(24,0,0)); // 추가로 생성된 freeblock의 풋터
+        //     SET_SP(FTRP(bp),0x4);
+        //     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1,2));//새로 생성된 에필로그 블록
 
-        }
+        //     SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
+        //     // free 블록 하나가 생긴거니까 addfreeblock도 해주어야함.
+        //     addFreeBlock(bp);
+        // }
     }
     // printf("%d: malloc %lu\n",malloc_index++,size);
     if((bp=find_fit(asize))!=NULL){
         place(bp,asize);
         return bp;
     }
-    // size_t extend_size=asize;
+    
     size_t extend_size=MAX(asize,CHUNKSIZE); // 여기서 나오는 extend_size는 헤더가 포함된 값
+    if(size==16||size==128){
+        extend_size=asize;
+    }
     if((bp=extend_heap(extend_size))==NULL) //extend_heap으로 얻은 블록의 bp값
         return NULL;
     place(bp,asize); // 요청하는 값만큼 할당
@@ -429,11 +440,13 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
         PUT(FTRP(bp), PACK(csize,0,0)); // 다음 블록과 병합한 free 블록의 풋터
     }
     else if(!prev_alloc&&next_alloc){ // 이전 블록만 병합하는 경우
-        deleteFreeBlock(PREV_BLKP(bp));
-        csize+=GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(FTRP(bp),PACK(csize,0,0));
-        PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0)); //prev_free가 0인이유는 이전블록이 free해서 병합했는데 더 이전 블록도 free 일 수가 없음.
-        bp=PREV_BLKP(bp);
+        if(!GET_SP(HDRP(PREV_BLKP(bp)))){
+            deleteFreeBlock(PREV_BLKP(bp));
+            csize+=GET_SIZE(HDRP(PREV_BLKP(bp)));
+            PUT(FTRP(bp),PACK(csize,0,0));
+            PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0)); //prev_free가 0인이유는 이전블록이 free해서 병합했는데 더 이전 블록도 free 일 수가 없음.
+            bp=PREV_BLKP(bp);
+        }
     }
     else{ // 이전, 다음 블록 모두 병합하는 경우
         deleteFreeBlock(PREV_BLKP(bp));
@@ -453,28 +466,6 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
 }
 static void *find_fit(size_t asize){
     char* bp;
-    // //일단 first fit;
-    // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
-    //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
-    //         return bp;
-    // // }
-    // if(asize==24||asize==136){
-    //     size_t minsize=__SIZE_MAX__;
-    //     char* minbp=NULL;
-    //     size_t firstfit=0;
-    //     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
-    //         size_t bpsize=GET_SIZE(HDRP(bp));
-    //         if(asize==bpsize && !firstfit){
-    //             firstfit=1;
-    //             continue;
-    //         }
-    //         if(asize<=bpsize && bpsize<=minsize){
-    //             minsize=bpsize;
-    //             minbp=bp;
-    //         }
-    //     }
-    //     return minbp;
-    // }
     size_t minsize=__SIZE_MAX__;
     char* minbp=NULL;
     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
@@ -545,7 +536,17 @@ void* mm_realloc(void* ptr, size_t size){
             }
             return bp;
         }
-
+        if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0)
+        {
+            // 필요한 추가 크기 계산 및 확장
+            size_t extendsize = asize - csize;
+            if ((long)(mem_sbrk(extendsize)) == -1)
+                return NULL;
+            PUT(HDRP(bp), PACK(asize, 1,0));
+            PUT(FTRP(bp), PACK(asize, 1,0));
+            PUT(HDRP(NEXT_BLKP(bp)), PACK(0, 1,2));
+            return bp;
+        }
         if(!prev_alloc && addSize+GET_SIZE(HDRP(PREV_BLKP(bp)))>=asize){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
             addSize+=GET_SIZE(HDRP(PREV_BLKP(bp)));
             char* prev_bp=PREV_BLKP(bp); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
