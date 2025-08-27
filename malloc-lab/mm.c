@@ -149,10 +149,6 @@ static void special_place(void* bp, size_t asize){
         PUT(FTRP(bp),PACK(asize,1,0));
         SET_SP(HDRP(bp),0x4);
         bp=NEXT_BLKP(bp);
-        // PUT(HDRP(bp),PACK(csize-asize,0,0));
-        // SET_SP(HDRP(bp),0x4);
-        // PUT(FTRP(bp),PACK(csize-asize,0,0));
-        // SET_SP(HDRP(bp),0x4);
     }
     else{
         PUT(HDRP(bp),PACK(asize,1,0));
@@ -546,7 +542,7 @@ void* mm_realloc(void* ptr, size_t size){
         }
         return bp;
     }
-    if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0)
+    if (GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0) //realloc2 전용
     {
         // 필요한 추가 크기 계산 및 확장
         size_t extendsize = asize - csize; //아마 8일거임
