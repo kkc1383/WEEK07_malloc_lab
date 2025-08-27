@@ -565,7 +565,6 @@ void* mm_realloc(void* ptr, size_t size){
         memmove(prev_bp,bp,csize-WSIZE); // 데이터를 옮긴다.
         PUT(HDRP(prev_bp),PACK(addSize,1,0));// 병합한 큰 블록 헤더 설정
         SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0);
-        realloc_count=0;
         return prev_bp;
     }
     
