@@ -61,8 +61,8 @@ team_t team = {
 #define PUT_PREV(bp,ptr) (*(void **)(bp)=(void *)(ptr))
 #define PUT_NEXT(bp, ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
 
-#define GET_SP(p) (GET(p) & 0x2)
-#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x2) | (val))) //초기화 시키고 val더함 여기서 val은 0x2거나 0x0이거나
+#define GET_SP(p) (GET(p) & 0x4)
+#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x4) | (val))) //초기화 시키고 val더함 여기서 val은 0x2거나 0x0이거나
 
 static void* heap_listp=NULL;
 static void* fl_head=NULL;
@@ -118,16 +118,16 @@ static void special_free(void* bp){
         bp=PREV_BLKP(bp); //이전블록을 기준으로
         size_t prev_size=GET_SIZE(HDRP(bp));
         PUT(HDRP(bp),PACK(csize+prev_size,0)); //헤더설정
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(csize+prev_size,0)); // 풋터설정
-        SET_SP(FTRP(bp),0x2);
+        SET_SP(FTRP(bp),0x4);
         addFreeBlock(bp);
     }
     else{
         PUT(HDRP(bp),PACK(csize,0));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(csize,0));
-        SET_SP(FTRP(bp),0x2);
+        SET_SP(FTRP(bp),0x4);
     }
 }
 static void special_place(void* bp, size_t asize){
@@ -135,20 +135,20 @@ static void special_place(void* bp, size_t asize){
 
     if(csize==2*asize){ // 2배로 넣은 것들
         PUT(HDRP(bp),PACK(asize,1));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(asize,1));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         bp=NEXT_BLKP(bp);
         PUT(HDRP(bp),PACK(csize-asize,0));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(csize-asize,0));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
     }
     else{
         PUT(HDRP(bp),PACK(asize,1));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(asize,1));
-        SET_SP(HDRP(bp),0x2);
+        SET_SP(HDRP(bp),0x4);
     }
 }
 static void* special_malloc(size_t size){ //binary 테스트 케이스만을 위한 malloc 여기서는 지연병합을 씀
@@ -199,20 +199,20 @@ static void* special_extend_heap(size_t asize, size_t type){ // 그 사이즈를
         for(int i=0;i<LOOP_MAX;i++){ // 2000번 반복
             //헤더설정
             PUT(HDRP(bp),PACK(48,0));
-            SET_SP(HDRP(bp),0x2);
+            SET_SP(HDRP(bp),0x4);
             //풋터설정
             PUT(FTRP(bp),PACK(48,0));
-            SET_SP(FTRP(bp),0x2);
+            SET_SP(FTRP(bp),0x4);
             //free list에 추가
             add_16(bp);
 
             //다음 블록
             bp=NEXT_BLKP(bp);
             PUT(HDRP(bp),PACK(120,0));
-            SET_SP(HDRP(bp),0x2);
+            SET_SP(HDRP(bp),0x4);
 
             PUT(FTRP(bp),PACK(120,0));
-            SET_SP(FTRP(bp),0x2);
+            SET_SP(FTRP(bp),0x4);
             add_112(bp);
 
             bp=NEXT_BLKP(bp);
@@ -223,20 +223,20 @@ static void* special_extend_heap(size_t asize, size_t type){ // 그 사이즈를
         for(int i=0;i<LOOP_MAX;i++){ // 2000번 반복
             //헤더설정
             PUT(HDRP(bp),PACK(144,0));
-            SET_SP(HDRP(bp),0x2);
+            SET_SP(HDRP(bp),0x4);
             //풋터설정
             PUT(FTRP(bp),PACK(144,0));
-            SET_SP(FTRP(bp),0x2);
+            SET_SP(FTRP(bp),0x4);
             //free list에 추가
             add_64(bp);
             
             //다음 블록
             bp=NEXT_BLKP(bp);
             PUT(HDRP(bp),PACK(456,0));
-            SET_SP(HDRP(bp),0x2);
+            SET_SP(HDRP(bp),0x4);
 
             PUT(FTRP(bp),PACK(456,0));
-            SET_SP(HDRP(bp),0x2);
+            SET_SP(HDRP(bp),0x4);
 
             add_448(bp);
 
@@ -371,7 +371,7 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     // printf("extend %lu \n",asize);
     PUT(HDRP(bp), PACK(asize,0)); // 추가로 생성된 freeblock의 헤더
     PUT(FTRP(bp), PACK(asize,0)); // 추가로 생성된 freeblock의 풋터
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));//새로 생성된 에필로그 블록, 추가 생성된 블락은 free니까 prev_free는 1(0x2)로 세팅
+    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));//새로 생성된 에필로그 블록, 추가 생성된 블락은 free니까 prev_free는 1(0x4)로 세팅
     
     return coalesce(bp); // 추가로 생성된 free block 이전이 free가 아니었으면 그냥 보내고, freeblock이었으면 병합하기
 }
@@ -382,7 +382,7 @@ void mm_free(void * ptr){
     size_t is_sp=GET_SP(HDRP(bp));
     size_t prev_sp=GET_SP(HDRP(PREV_BLKP(bp)));
     size_t next_sp=GET_SP(HDRP(NEXT_BLKP(bp)));
-    if(is_sp==0x2){
+    if(is_sp==0x4){
         if(csize==24||csize==120||csize==72||csize==456||csize==144||csize==528){
             // printf("%d special free %lu\n",free_index++,csize);
             special_free(bp);
