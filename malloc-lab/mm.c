@@ -512,7 +512,6 @@ static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하�
         SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0);//다음 블락의 prev_free 설정
     }
 }
-static int realloc_count=0;
 void* mm_realloc(void* ptr, size_t size){
     void* bp=ptr;
     size_t asize=ALIGN(size+WSIZE); // 요청한 바이트의 요구 바이트 실체
