@@ -534,28 +534,28 @@ void* mm_realloc(void* ptr, size_t size){
             }
             return bp;
         }
-        if(!next_alloc&& !prev_alloc && addSize+GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)))>=asize){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
-            addSize+=GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)));
-            char* prev_bp=PREV_BLKP(bp); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
-            deleteFreeBlock(prev_bp); // 이전블록을 쓸거니까 free list에서 삭제해주고 
-            deleteFreeBlock(NEXT_BLKP(bp));
-            memmove(prev_bp,bp,csize-WSIZE); // 데이터를 옮긴다.
-            if(addSize-asize>=3*DSIZE){
-                PUT(HDRP(prev_bp),PACK(asize,1,0));
-                //alloc 블록이라 푸터필요없음
-                void* next_bp=NEXT_BLKP(prev_bp);
-                PUT(HDRP(next_bp),PACK(addSize-asize,0,0));
-                PUT(FTRP(next_bp),PACK(addSize-asize,0,0));
-                addFreeBlock(next_bp);
-                SET_PREV_FREE(HDRP(next_bp),0x2);
-            }
-            else{
-                PUT(HDRP(prev_bp),PACK(addSize,1,0x0));
-                //alloc이라 푸터없음
-                SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0);
-            }
-            return prev_bp;
-        }
+        // if(!next_alloc&& !prev_alloc && addSize+GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)))>=asize){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
+        //     addSize+=GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)));
+        //     char* prev_bp=PREV_BLKP(bp); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
+        //     deleteFreeBlock(prev_bp); // 이전블록을 쓸거니까 free list에서 삭제해주고 
+        //     deleteFreeBlock(NEXT_BLKP(bp));
+        //     memmove(prev_bp,bp,csize-WSIZE); // 데이터를 옮긴다.
+        //     if(addSize-asize>=3*DSIZE){
+        //         PUT(HDRP(prev_bp),PACK(asize,1,0));
+        //         //alloc 블록이라 푸터필요없음
+        //         void* next_bp=NEXT_BLKP(prev_bp);
+        //         PUT(HDRP(next_bp),PACK(addSize-asize,0,0));
+        //         PUT(FTRP(next_bp),PACK(addSize-asize,0,0));
+        //         addFreeBlock(next_bp);
+        //         SET_PREV_FREE(HDRP(next_bp),0x2);
+        //     }
+        //     else{
+        //         PUT(HDRP(prev_bp),PACK(addSize,1,0x0));
+        //         //alloc이라 푸터없음
+        //         SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0);
+        //     }
+        //     return prev_bp;
+        // }
         // 신경써야할건 다음 블록이 free이기 때문에, free list에서 빼주는것
         // 그리고 prev_free에 관한 내용인데,
         //분할한 이후, 다음 블록은 0으로 만들어주어야함.
