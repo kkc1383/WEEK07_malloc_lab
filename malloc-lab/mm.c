@@ -94,6 +94,7 @@ static void* list_64=NULL;
 static void* list_448=NULL;
 static int LOOP_MAX=2000;
 
+
 int mm_init(void){
     fl_head=NULL;
     list_16=NULL;
@@ -116,12 +117,19 @@ int mm_init(void){
 }
 static void special_free(void* bp){
     size_t csize=GET_SIZE(HDRP(bp));
-    if(csize==120||csize==456){ //이전블록이랑 합쳐야 함.
-        bp=PREV_BLKP(bp); //이전블록을 기준으로
-        size_t prev_size=GET_SIZE(HDRP(bp));
-        PUT(HDRP(bp),PACK(csize+prev_size,0,0)); //헤더설정
+    if(csize==120){ //이전블록이랑 합쳐야 함.
+        bp-=16;
+        PUT(HDRP(bp),PACK(136,0,0)); //헤더설정
         SET_SP(HDRP(bp),0x4);
-        PUT(FTRP(bp),PACK(csize+prev_size,0,0)); // 풋터설정
+        PUT(FTRP(bp),PACK(136,0,0)); // 풋터설정
+        SET_SP(FTRP(bp),0x4);
+        addFreeBlock(bp);
+    }
+    else if(csize==456){
+        bp-=64;
+        PUT(HDRP(bp),PACK(520,0,0)); //헤더설정
+        SET_SP(HDRP(bp),0x4);
+        PUT(FTRP(bp),PACK(520,0,0)); // 풋터설정
         SET_SP(FTRP(bp),0x4);
         addFreeBlock(bp);
     }
@@ -135,16 +143,16 @@ static void special_free(void* bp){
 static void special_place(void* bp, size_t asize){
     size_t csize=GET_SIZE(HDRP(bp)); //내가 넣으려는 free block
 
-    if(csize==2*asize){ // 2배로 넣은 것들
+    if(csize==2*asize-8){ // 2배로 넣은 것들
         PUT(HDRP(bp),PACK(asize,1,0));
         SET_SP(HDRP(bp),0x4);
         PUT(FTRP(bp),PACK(asize,1,0));
         SET_SP(HDRP(bp),0x4);
         bp=NEXT_BLKP(bp);
-        PUT(HDRP(bp),PACK(csize-asize,0,0));
-        SET_SP(HDRP(bp),0x4);
-        PUT(FTRP(bp),PACK(csize-asize,0,0));
-        SET_SP(HDRP(bp),0x4);
+        // PUT(HDRP(bp),PACK(csize-asize,0,0));
+        // SET_SP(HDRP(bp),0x4);
+        // PUT(FTRP(bp),PACK(csize-asize,0,0));
+        // SET_SP(HDRP(bp),0x4);
     }
     else{
         PUT(HDRP(bp),PACK(asize,1,0));
@@ -184,9 +192,9 @@ static void* special_malloc(size_t size){ //binary 테스트 케이스만을 위
     size_t extend_size=0;
     if(size==16){
         LOOP_MAX*=2;
-        extend_size=LOOP_MAX*168;
+        extend_size=LOOP_MAX*160;
     }
-    else if(size==64) extend_size=LOOP_MAX*600;
+    else if(size==64) extend_size=LOOP_MAX*592;
 
     if(special_extend_heap(extend_size,size)==NULL) //extend_heap으로 얻은 블록의 bp값
         return NULL;
@@ -200,10 +208,10 @@ static void* special_extend_heap(size_t asize, size_t type){ // 그 사이즈를
     if(type==16){
         for(int i=0;i<LOOP_MAX;i++){ // 2000번 반복
             //헤더설정
-            PUT(HDRP(bp),PACK(48,0,0));
+            PUT(HDRP(bp),PACK(40,0,0));
             SET_SP(HDRP(bp),0x4);
             //풋터설정
-            PUT(FTRP(bp),PACK(48,0,0));
+            PUT(FTRP(bp),PACK(40,0,0));
             SET_SP(FTRP(bp),0x4);
             //free list에 추가
             add_16(bp);
@@ -224,10 +232,10 @@ static void* special_extend_heap(size_t asize, size_t type){ // 그 사이즈를
     else if(type==64){
         for(int i=0;i<LOOP_MAX;i++){ // 2000번 반복
             //헤더설정
-            PUT(HDRP(bp),PACK(144,0,0));
+            PUT(HDRP(bp),PACK(136,0,0));
             SET_SP(HDRP(bp),0x4);
             //풋터설정
-            PUT(FTRP(bp),PACK(144,0,0));
+            PUT(FTRP(bp),PACK(136,0,0));
             SET_SP(FTRP(bp),0x4);
             //free list에 추가
             add_64(bp);
@@ -350,7 +358,14 @@ void* mm_malloc(size_t size){
             return bp;
         }
     } 
-    
+    if(GET_SIZE(HDRP(NEXT_BLKP(heap_listp)))==0){ //첫 할당일 경우
+        if(size==4092){//realloc2
+
+        }
+        else if(size==512){
+
+        }
+    }
     // printf("%d: malloc %lu\n",malloc_index++,size);
     if((bp=find_fit(asize))!=NULL){
         place(bp,asize);
@@ -386,7 +401,7 @@ void mm_free(void * ptr){
     size_t is_sp=GET_SP(HDRP(bp));
     size_t next_sp=GET_SP(HDRP(NEXT_BLKP(bp)));
     if(is_sp==0x4){
-        if(csize==24||csize==120||csize==72||csize==456||csize==144||csize==528){
+        if(csize==24||csize==120||csize==72||csize==456||csize==136||csize==520){
             // printf("%d special free %lu\n",free_index++,csize);
             special_free(bp);
             return;
@@ -442,6 +457,23 @@ static void *find_fit(size_t asize){
     // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
     //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
     //         return bp;
+    // // }
+    // if(asize==24||asize==136){
+    //     size_t minsize=__SIZE_MAX__;
+    //     char* minbp=NULL;
+    //     size_t firstfit=0;
+    //     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
+    //         size_t bpsize=GET_SIZE(HDRP(bp));
+    //         if(asize==bpsize && !firstfit){
+    //             firstfit=1;
+    //             continue;
+    //         }
+    //         if(asize<=bpsize && bpsize<=minsize){
+    //             minsize=bpsize;
+    //             minbp=bp;
+    //         }
+    //     }
+    //     return minbp;
     // }
     size_t minsize=__SIZE_MAX__;
     char* minbp=NULL;
@@ -485,7 +517,6 @@ void* mm_realloc(void* ptr, size_t size){
     void* bp=ptr;
     size_t asize=ALIGN(size+WSIZE); // 요청한 바이트의 요구 바이트 실체
     size_t csize=GET_SIZE(HDRP(bp)); // 지금 내 공간의 크기
-
     if(asize<=csize)//확장을 할 필요가 없다면
         return bp; //그냥 그대로 반환한다.
     else{ // 확장을 해야 한다면
@@ -494,6 +525,27 @@ void* mm_realloc(void* ptr, size_t size){
         size_t addSize=csize;
         size_t prev_free=GET_PREV_FREE(HDRP(bp)); //이전 alloc 유무를 알아야 place할때 적용하기때문에
         
+        
+        if(!next_alloc&& addSize+GET_SIZE(HDRP(NEXT_BLKP(bp)))>=asize){ // 바로 다음 블록을 쓸 수 있다면
+            addSize+=GET_SIZE(HDRP(NEXT_BLKP(bp)));
+            deleteFreeBlock(NEXT_BLKP(bp)); // 다음 free블록을 쓰게 되었으니 삭제해줘야함
+            if(addSize-asize>=3*DSIZE){ // 분할을 할 수 있다면,
+                PUT(HDRP(bp), PACK(asize,1,prev_free));
+                //alloc이라 풋터없음
+                void* next_bp=NEXT_BLKP(bp); // 분할해서 생긴 free block의 bp자리
+                PUT(HDRP(next_bp),PACK(addSize-asize,0,0)); //분할해서생긴 freeblock 헤더
+                PUT(FTRP(next_bp),PACK(addSize-asize,0,0)); // 분할해서생긴 freeblock 풋터
+                addFreeBlock(NEXT_BLKP(bp));//분할해서 생긴 freeblock list에 넣기
+                SET_PREV_FREE(HDRP(next_bp),0x2); // 분할해서 생긴 free block 다음은 prev_free가 2일테니
+            }
+            else{ // 분할 못한다면 그냥 넣기
+                PUT(HDRP(bp), PACK(addSize,1,prev_free));
+                //alloc이라 풋터 없음
+                SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0); //free 블록 뺏어서 할당했으니 0으로 해줘야함
+            }
+            return bp;
+        }
+
         if(!prev_alloc && addSize+GET_SIZE(HDRP(PREV_BLKP(bp)))>=asize){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
             addSize+=GET_SIZE(HDRP(PREV_BLKP(bp)));
             char* prev_bp=PREV_BLKP(bp); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
@@ -515,25 +567,7 @@ void* mm_realloc(void* ptr, size_t size){
             }
             return prev_bp;
         }
-        if(!next_alloc&& addSize+GET_SIZE(HDRP(NEXT_BLKP(bp)))>=asize){ // 바로 다음 블록을 쓸 수 있다면
-            addSize+=GET_SIZE(HDRP(NEXT_BLKP(bp)));
-            deleteFreeBlock(NEXT_BLKP(bp)); // 다음 free블록을 쓰게 되었으니 삭제해줘야함
-            if(addSize-asize>=3*DSIZE){ // 분할을 할 수 있다면,
-                PUT(HDRP(bp), PACK(asize,1,prev_free));
-                //alloc이라 풋터없음
-                void* next_bp=NEXT_BLKP(bp); // 분할해서 생긴 free block의 bp자리
-                PUT(HDRP(next_bp),PACK(addSize-asize,0,0)); //분할해서생긴 freeblock 헤더
-                PUT(FTRP(next_bp),PACK(addSize-asize,0,0)); // 분할해서생긴 freeblock 풋터
-                addFreeBlock(NEXT_BLKP(bp));//분할해서 생긴 freeblock list에 넣기
-                SET_PREV_FREE(HDRP(next_bp),0x2); // 분할해서 생긴 free block 다음은 prev_free가 2일테니
-            }
-            else{ // 분할 못한다면 그냥 넣기
-                PUT(HDRP(bp), PACK(addSize,1,prev_free));
-                //alloc이라 풋터 없음
-                SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x0); //free 블록 뺏어서 할당했으니 0으로 해줘야함
-            }
-            return bp;
-        }
+        
         // if(!next_alloc&& !prev_alloc && addSize+GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)))>=asize){ // 이전,다음블록이 모두 free이고, 이전 다음 블록을 합치면 추가블록을 충당할 수 있다면
         //     addSize+=GET_SIZE(HDRP(PREV_BLKP(bp)))+GET_SIZE(HDRP(NEXT_BLKP(bp)));
         //     char* prev_bp=PREV_BLKP(bp); // memmove하면 해당 위치에 덮어씌워지니까 미리 prev_header의 주소를 저장
