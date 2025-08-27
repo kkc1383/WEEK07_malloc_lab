@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<10) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<8) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -82,10 +82,10 @@ int mm_init(void){
     PUT(heap_listp+(1*WSIZE),PACK(DSIZE,1,0));
     PUT(heap_listp+(2*WSIZE),PACK(DSIZE,1,0));
     PUT(heap_listp+(3*WSIZE),PACK(0,1,0));
-    heap_listp+=1*WSIZE;
+    heap_listp+=2*WSIZE;
 
-    // if(extend_heap(CHUNKSIZE)==NULL)
-    //     return -1;
+    if(extend_heap(CHUNKSIZE)==NULL)
+        return -1;
     return 0;
 }
 
@@ -169,12 +169,21 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
 }
 static void *find_fit(size_t asize){
     char* bp;
-
+    // //일단 first fit;
+    // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
+    //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
+    //         return bp;
+    // }
+    size_t minsize=__SIZE_MAX__;
+    char* minbp=NULL;
     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
-        if(asize<=GET_SIZE(HDRP(bp)))
-            return bp;
+        size_t bpsize=GET_SIZE(HDRP(bp));
+        if(asize<=bpsize && bpsize<minsize){
+            minsize=bpsize;
+            minbp=bp;
+        }
     }
-    return NULL;
+    return minbp;
 }
 
 static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하려고 하기 때문에 이전 블록은 무조건 alloc이다.
