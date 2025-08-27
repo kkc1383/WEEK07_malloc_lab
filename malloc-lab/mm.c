@@ -36,7 +36,7 @@ team_t team = {
 
 #define WSIZE 4
 #define DSIZE 8
-#define CHUNKSIZE (1<<8) //나중에 이거 좀 고치면 될듯
+#define CHUNKSIZE (1<<10) //나중에 이거 좀 고치면 될듯
 #define ALIGNMENT 8
 
 #define MAX(x,y) ((x)>(y)? (x) : (y))
@@ -74,313 +74,30 @@ static void place(void *bp, size_t asize);
 static void addFreeBlock(void* bp);
 static void deleteFreeBlock(void* bp);
 
-static void* special_malloc(size_t asize);
-static void special_free(void* bp);
-static void special_place(void* bp, size_t asize);
-static void* special_malloc(size_t size);
-static void* special_extend_heap(size_t asize, size_t type);
-static void add_16(void* bp);
-static void add_112(void* bp);
-static void add_128(void* bp);
-static void add_64(void* bp);
-static void add_448(void* bp);
-static void add_512(void* bp);
-static void* pop_16();
-static void* pop_112();
-static void* pop_128();
-static void* pop_64();
-static void* pop_448();
-static void* pop_512();
-static void* list_16=NULL;
-static void* list_112=NULL;
-static void* list_128=NULL;
-static void* list_64=NULL;
-static void* list_448=NULL;
-static void* list_512=NULL;
-
 int mm_init(void){
     fl_head=NULL;
-    list_16=NULL;
-    list_112=NULL;
-    list_128=NULL;
-    list_64=NULL;
-    list_448=NULL;
-    list_512=NULL;
     if((heap_listp=mem_sbrk(4*WSIZE))==(void *)-1)
         return -1;
     PUT(heap_listp,0);
     PUT(heap_listp+(1*WSIZE),PACK(DSIZE,1,0));
     PUT(heap_listp+(2*WSIZE),PACK(DSIZE,1,0));
     PUT(heap_listp+(3*WSIZE),PACK(0,1,0));
-    heap_listp+=2*WSIZE;
-    
+    heap_listp+=1*WSIZE;
+
     // if(extend_heap(CHUNKSIZE)==NULL)
     //     return -1;
     return 0;
-}
-
-static void special_free(void* bp){
-    size_t csize=GET_SIZE(HDRP(bp));
-    if(csize==120||csize==456){ //이전블록이랑 합쳐야 함.
-        bp=PREV_BLKP(bp);
-        size_t prev_size=GET_SIZE(HDRP(bp));
-        PUT(HDRP(bp),PACK(csize+prev_size,0,0));
-        PUT(HDRP(bp),PACK(csize+prev_size,0,0));
-    }
-    else{
-        PUT(HDRP(bp),PACK(csize,0,0));
-        PUT(FTRP(bp),PACK(csize,0,0));
-    }
-}
-static void special_place(void* bp, size_t asize){
-    size_t csize=GET_SIZE(HDRP(bp)); //내가 넣으려는 free block
-
-    if(csize>asize){ // 2배로 넣은 것들
-        PUT(HDRP(bp),PACK(asize,1,0));
-        PUT(FTRP(bp),PACK(asize,1,0));
-        bp=NEXT_BLKP(bp);
-        PUT(HDRP(bp),PACK(csize-asize,0,0));
-        PUT(FTRP(bp),PACK(csize-asize,0,0));
-        if(asize==24) add_128(bp);
-        else if(asize==72) add_512(bp);
-    }
-    else{
-        PUT(HDRP(bp),PACK(asize,1,0));
-        PUT(FTRP(bp),PACK(asize,1,0));
-    }
-}
-static void* special_malloc(size_t size){ //binary 테스트 케이스만을 위한 malloc 여기서는 지연병합을 씀
-    size_t asize=ALIGN(size+WSIZE);
-    void* bp;
-    if(size==16){
-        if((bp=pop_16())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    else if(size==112){
-        if((bp=pop_112())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    else if(size==128){
-        if((bp=pop_128())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    else if(size==64){
-        if((bp=pop_64())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    else if(size==448){
-        if((bp=pop_448())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    else if(size==512){
-        if((bp=pop_512())!=NULL){
-            special_place(bp,asize);
-            return bp;
-        }
-    }
-    //오링이 났으면 extend_heap을 요청
-    size_t extend_size;
-    if(size==16) extend_size=2000*168;
-    else if(size==64) extend_size=4000*600;
-
-    if(special_extend_heap(extend_size,size)==NULL) //extend_heap으로 얻은 블록의 bp값
-        return NULL;
-
-    return special_malloc(size);
-}
-static void* special_extend_heap(size_t asize, size_t type){ // 그 사이즈를 일단 할당받고 잘게 잘라서 각 리스트에 넣어주기
-    char* bp;
-    if((long)(bp=mem_sbrk(asize))==-1)
-        return NULL;
-    if(type==16){
-        for(int i=0;i<2000;i++){ // 2000번 반복
-            //헤더설정
-            PUT(HDRP(bp),PACK(48,0,0));
-            //풋터설정
-            PUT(FTRP(bp),PACK(48,0,0));
-            add_16(bp);
-            bp=NEXT_BLKP(bp);
-            PUT(HDRP(bp),PACK(120,0,0));
-            PUT(FTRP(bp),PACK(120,0,0));
-            bp=NEXT_BLKP(bp);
-            add_112(bp);
-        }
-    }
-    else if(type==64){
-        for(int i=0;i<4000;i++){ // 2000번 반복
-            //헤더설정
-            PUT(HDRP(bp),PACK(144,0,0));
-            //풋터설정
-            PUT(FTRP(bp),PACK(144,0,0));
-            add_64(bp);
-            bp=NEXT_BLKP(bp);
-            PUT(HDRP(bp),PACK(600,0,0));
-            PUT(FTRP(bp),PACK(600,0,0));
-            add_448(bp);
-            bp=NEXT_BLKP(bp);
-        }
-    }
-    return bp;
-}
-static void add_16(void* bp){
-    if(!list_16){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_16=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_16);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_16,bp);
-        list_16=bp;
-    }
-}
-static void add_112(void* bp){
-    if(!list_112){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_112=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_112);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_112,bp);
-        list_112=bp;
-    }
-}
-static void add_128(void* bp){
-    if(!list_128){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_128=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_128);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_128,bp);
-        list_128=bp;
-    }
-}
-static void add_64(void* bp){
-    if(!list_64){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_64=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_64);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_64,bp);
-        list_64=bp;
-    }
-}
-static void add_448(void* bp){
-    if(!list_448){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_448=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_448);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_448,bp);
-        list_448=bp;
-    }
-}
-static void add_512(void* bp){
-    if(!list_512){
-        PUT_PREV(bp,NULL);
-        PUT_NEXT(bp,NULL);
-        list_512=bp;
-    }
-    else{
-        PUT_NEXT(bp,list_512);
-        PUT_PREV(bp,NULL);
-        PUT_PREV(list_512,bp);
-        list_512=bp;
-    }
-}
-//extend_heap이 각 list에 그 크기를 잘게 잘라서 담아줌 LIFO 방식
-static void* pop_16(){
-    void* list_head=list_16;
-    if(!list_head)
-        return NULL;
-    list_16=GET_NEXT(list_16);
-    PUT_PREV(list_16,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
-}
-static void* pop_112(){
-    void* list_head=list_112;
-    if(!list_head)
-        return NULL;
-    list_112=GET_NEXT(list_112);
-    PUT_PREV(list_112,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
-}
-static void* pop_128(){
-    void* list_head=list_128;
-    if(!list_head)
-        return NULL;
-    list_128=GET_NEXT(list_128);
-    PUT_PREV(list_128,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
-}
-static void* pop_64(){
-    void* list_head=list_64;
-    if(!list_head)
-        return NULL;
-    list_64=GET_NEXT(list_64);
-    PUT_PREV(list_64,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
-}
-static void* pop_448(){
-    void* list_head=list_448;
-    if(!list_head)
-        return NULL;
-    list_448=GET_NEXT(list_448);
-    PUT_PREV(list_448,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
-}
-static void* pop_512(){
-    void* list_head=list_512;
-    if(!list_head)
-        return NULL;
-    list_512=GET_NEXT(list_512);
-    PUT_PREV(list_512,NULL);
-    PUT_NEXT(list_head,NULL);
-    return list_head; //줄 주소가 없으면
 }
 
 void* mm_malloc(size_t size){
     size_t asize=ALIGN(size+WSIZE); // 요청받은 size에 헤더값을 더하고 정렬기준에 맞춘 값
     char* bp;
 
-    if(size==22||size==116||size==64||size==448||size==128||size==512){
-        bp=special_malloc(size);
-        return bp;
-    }
-
     if((bp=find_fit(asize))!=NULL){
         place(bp,asize);
         return bp;
     }
 
-    
     size_t extend_size=MAX(asize,CHUNKSIZE); // 여기서 나오는 extend_size는 헤더가 포함된 값
     if((bp=extend_heap(extend_size))==NULL) //extend_heap으로 얻은 블록의 bp값
         return NULL;
@@ -406,10 +123,6 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
 void mm_free(void * ptr){
     void* bp=ptr;
     size_t csize =GET_SIZE(HDRP(bp));
-    if(csize==24||csize==120||csize==144||csize==72||csize==456||csize==536){
-        special_free(bp);
-        return;
-    }
     size_t prev_free=GET_PREV_FREE(HDRP(bp));
     PUT(HDRP(bp),PACK(csize,0,prev_free)); // free 해줄 블록의 헤더
     PUT(FTRP(bp), PACK(csize,0,prev_free)); // free 해줄 블록의 풋터
@@ -455,25 +168,13 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
     return bp;
 }
 static void *find_fit(size_t asize){
-    //first fit
-    // char* bp;
-    // for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
-    //     if(asize<=GET_SIZE(HDRP(bp)))
-    //         return bp;
-    // }
-    // return NULL;
-    //best fit
     char* bp;
-    size_t minsize=__SIZE_MAX__;
-    char* minbp=NULL;
+
     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
-        size_t bpSize=GET_SIZE(HDRP(bp));
-        if(asize<=bpSize && minsize > bpSize ){
-            minsize=bpSize;
-            minbp=bp;
-        }
+        if(asize<=GET_SIZE(HDRP(bp)))
+            return bp;
     }
-    return minbp;
+    return NULL;
 }
 
 static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하려고 하기 때문에 이전 블록은 무조건 alloc이다.
