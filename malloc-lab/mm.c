@@ -146,21 +146,28 @@ void *mm_realloc(void *ptr, size_t size)
     if (newsize <= originsize) {
         return oldptr;
     } else {
-        size_t addSize = originsize + GET_SIZE(HDRP(NEXT_BLKP(oldptr))); // 추가 사이즈 -> 헤더 포함 사이즈
-        if (!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && (newsize <= addSize)) { // 가용 블록이고 사이즈 충분
-            //합친 블록을 free블록으로 설정해놓고 place 돌림
-            PUT(HDRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 헤더를 free로 함
-            PUT(FTRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 풋터를 free로 함
-            place(oldptr,newsize);
-            return oldptr;
-        } else {
-            newptr = mm_malloc(newsize);
-            if (newptr == NULL)
-                return NULL;
-            memmove(newptr, oldptr, copySize); // memcpy 사용 시, memcpy-param-overlap 발생
-            mm_free(oldptr);
-            return newptr;
-        }
+        newptr = mm_malloc(newsize);
+        if (newptr == NULL)
+            return NULL;
+        memmove(newptr, oldptr, copySize); // memcpy 사용 시, memcpy-param-overlap 발생
+        mm_free(oldptr);
+        return newptr;
+
+        // size_t addSize = originsize + GET_SIZE(HDRP(NEXT_BLKP(oldptr))); // 추가 사이즈 -> 헤더 포함 사이즈
+        // if (!GET_ALLOC(HDRP(NEXT_BLKP(oldptr))) && (newsize <= addSize)) { // 가용 블록이고 사이즈 충분
+        //     //합친 블록을 free블록으로 설정해놓고 place 돌림
+        //     PUT(HDRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 헤더를 free로 함
+        //     PUT(FTRP(oldptr), PACK(addSize, 0)); // 병합한 블록의 풋터를 free로 함
+        //     place(oldptr,newsize);
+        //     return oldptr;
+        // } else {
+        //     newptr = mm_malloc(newsize);
+        //     if (newptr == NULL)
+        //         return NULL;
+        //     memmove(newptr, oldptr, copySize); // memcpy 사용 시, memcpy-param-overlap 발생
+        //     mm_free(oldptr);
+        //     return newptr;
+        // }
     }
     // if(!ptr) return mm_malloc(size);
     // if(!size) { mm_free(ptr); return NULL;}
