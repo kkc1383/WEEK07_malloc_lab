@@ -113,8 +113,6 @@ int mm_init(void){
     PUT(heap_listp+(3*WSIZE),PACK(0,1,0));
     heap_listp+=2*WSIZE;
 
-    // if(extend_heap(CHUNKSIZE)==NULL)
-    //     return -1;
     return 0;
 }
 static void special_free(void* bp){
@@ -151,10 +149,6 @@ static void special_place(void* bp, size_t asize){
         PUT(FTRP(bp),PACK(asize,1,0));
         SET_SP(HDRP(bp),0x4);
         bp=NEXT_BLKP(bp);
-        // PUT(HDRP(bp),PACK(csize-asize,0,0));
-        // SET_SP(HDRP(bp),0x4);
-        // PUT(FTRP(bp),PACK(csize-asize,0,0));
-        // SET_SP(HDRP(bp),0x4);
     }
     else{
         PUT(HDRP(bp),PACK(asize,1,0));
@@ -399,7 +393,6 @@ void* mm_malloc(size_t size){
     if((bp=extend_heap(extend_size))==NULL) //extend_heap으로 얻은 블록의 bp값
         return NULL;
     place(bp,asize); // 요청하는 값만큼 할당
-    //윗 부분이 버그가 많이 생기는 것 같음
     return bp;
 }
 
@@ -408,7 +401,6 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     
     if((long)(bp=mem_sbrk(asize))==-1)
         return NULL;
-    // printf("extend %lu \n",asize);
     size_t epil_prev_free=GET_PREV_FREE(HDRP(bp));
     PUT(HDRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 헤더
     PUT(FTRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
@@ -425,13 +417,11 @@ void mm_free(void * ptr){
     size_t next_sp=GET_SP(HDRP(NEXT_BLKP(bp)));
     if(is_sp==0x4){
         if(csize==24||csize==120||csize==72||csize==456||csize==136||csize==520){
-            // printf("%d special free %lu\n",free_index++,csize);
             special_free(bp);
             return;
         }
     }
     
-    // printf("%d free %lu\n",free_index++,csize);
     PUT(HDRP(bp),PACK(csize,0,prev_free)); // free 해줄 블록의 헤더
     PUT(FTRP(bp), PACK(csize,0,prev_free)); // free 해줄 블록의 풋터
     //addfreeblock은 나중에 coalesce가 해줄거임.
@@ -462,8 +452,8 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
             //병합 후 블록 풋터 설정
             PUT(FTRP(bp),PACK(csize,0,0));
             //병합 후 블록 헤더 설정
-            PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0));
-            //bp 이동                                                   //prev_free가 0인이유는 이전블록이 free해서 병합했는데 더 이전 블록도 free 일 수가 없음.
+            PUT(HDRP(PREV_BLKP(bp)),PACK(csize,0,0)); //prev_free가 0인이유는 이전블록이 free해서 병합했는데 더 이전 블록도 free 일 수가 없음
+            //bp 이동                   .
             bp=PREV_BLKP(bp);
         }
     }
@@ -475,7 +465,6 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
         PUT(FTRP(NEXT_BLKP(bp)),PACK(csize,0,0));
         bp=PREV_BLKP(bp);
     }
-    // TODO
     // 새로 이사왔으니 다음 블록에게 prev_free 세팅 해주어야함
     SET_PREV_FREE(HDRP(NEXT_BLKP(bp)),0x2);
     // free 블록 하나가 생긴거니까 addfreeblock도 해주어야함.
@@ -527,7 +516,6 @@ void* mm_realloc(void* ptr, size_t size){
     void* bp=ptr;
     size_t asize=ALIGN(size+WSIZE); // 요청한 바이트의 요구 바이트 실체
     size_t csize=GET_SIZE(HDRP(bp)); // 지금 내 공간의 크기
-    // printf("%d realloc : %lu, %lu\n",realloc_index++,csize,asize);
 
     if(asize<=csize)
         return bp;
