@@ -111,7 +111,7 @@ static void* extend_heap(size_t asize){ //여기서 size는 header까지 다 포
     
     if((long)(bp=mem_sbrk(asize))==-1)
         return NULL;
-    printf("extend %lu \n",asize);
+    // printf("extend %lu \n",asize);
     size_t epil_prev_free=GET_PREV_FREE(HDRP(bp));
     PUT(HDRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 헤더
     PUT(FTRP(bp), PACK(asize,0,epil_prev_free)); // 추가로 생성된 freeblock의 풋터
@@ -169,17 +169,24 @@ static void* coalesce(void *bp){ //막 free된 블록이 입력, 합병하고 �
 }
 static void *find_fit(size_t asize){
     char* bp;
-    // //일단 first fit;
-    // for(bp=NEXT_BLKP(heap_listp);GET_SIZE(HDRP(bp))>0;bp=NEXT_BLKP(bp)){
-    //     if(!GET_ALLOC(HDRP(bp))&&(asize<=GET_SIZE(HDRP(bp))))
+    // // first fit
+    // for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
+    //     if(asize<=GET_SIZE(HDRP(bp)))
     //         return bp;
     // }
+    // return NULL;
 
+    // best fit
+    char* minbp=NULL;
+    size_t minsize=__SIZE_MAX__;
     for(bp=fl_head;bp!=NULL;bp=GET_NEXT(bp)){
-        if(asize<=GET_SIZE(HDRP(bp)))
-            return bp;
+        size_t bpsize=GET_SIZE(HDRP(bp));
+        if(asize<=bpsize && minsize>bpsize){
+            minsize=bpsize;
+            minbp=bp;
+        }
     }
-    return NULL;
+    return minbp;
 }
 
 static void place(void *bp, size_t asize){ // 이미 free한 블록에 place하려고 하기 때문에 이전 블록은 무조건 alloc이다.
