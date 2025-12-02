@@ -1,272 +1,459 @@
-# Malloc Lab 구현
+# Malloc Lab 구현 문서
 
-**팀**: team_one
-**작성자**: Kyoungchan Kang (kangkc09@gmail.com)
-**점수**: 99/100
+**Team**: team_one
+**Author**: Kyoungchan Kang (kangkc09@gmail.com)
+**Score**: 99/100
+**GitHub**: https://github.com/kkc1383/WEEK07_malloc_lab/blob/main/malloc-lab/mm.c
+
+---
+
+## 목차
+1. [개요](#개요)
+2. [최종 구현 방식](#최종-구현-방식)
+3. [구현 단계별 발전 과정](#구현-단계별-발전-과정)
+4. [핵심 최적화 기법](#핵심-최적화-기법)
+5. [성능 분석](#성능-분석)
+6. [참고 자료](#참고-자료)
+
+---
 
 ## 개요
 
-동적 메모리 할당자(malloc/free/realloc)를 구현한 프로젝트입니다. Segregated Free List와 특정 할당 패턴에 대한 최적화를 통해 높은 성능을 달성했습니다.
+본 프로젝트는 동적 메모리 할당자(malloc/free/realloc)를 구현하여 높은 메모리 활용률과 빠른 처리 속도를 달성하는 것을 목표로 합니다. CSAPP(Computer Systems: A Programmer's Perspective) 교재의 Malloc Lab을 기반으로 하며, 최종적으로 **99/100점**을 획득했습니다.
 
-## 주요 특징
+### 주요 성과
+- **메모리 활용률**: Binary 테스트 케이스에서 97%/90% 달성
+- **처리 속도**: Explicit Free List를 통한 탐색 시간 최적화
+- **특화 최적화**: Binary-bal, Binary2-bal, Realloc2 케이스 최적화
 
-### 1. Segregated Free List 아키텍처
+---
 
-- **일반 Free List**: 주소 순서로 정렬된 명시적 free list (일반 할당용)
-- **특수 크기별 List**: binary-bal.rep 테스트 케이스 최적화를 위한 4개의 전용 리스트
-  - `list_16`: 40바이트 블록 (16바이트 페이로드)
-  - `list_112`: 120바이트 블록 (112바이트 페이로드)
-  - `list_64`: 136바이트 블록 (64바이트 페이로드)
-  - `list_448`: 456바이트 블록 (448바이트 페이로드)
+## 최종 구현 방식
 
-### 2. 블록 구조 최적화
+### 기본 아키텍처
+- **Explicit Free List + Best Fit** 방식을 기본으로 사용
+- **Segregated Free List** 개념을 특정 크기에만 적용
+- **No-footer 방식** (prev_free bit 활용)
+- **Special bit** (0x4)를 통한 특수 블록 관리
 
-#### 헤더 인코딩
-각 블록 헤더는 3가지 정보를 하나의 워드에 압축:
+### 특수 케이스 최적화
+| 테스트 케이스 | 최적화 기법 | 설명 |
+|--------------|------------|------|
+| Binary-bal (7번) | Segregated Free List | 64, 448 바이트 전용 리스트 |
+| Binary2-bal (8번) | Segregated Free List | 16, 112 바이트 전용 리스트 |
+| Realloc2 (10번) | 선배치 Free Block | 병합되지 않는 free block 미리 배치 |
+
+### 전용 함수
+- `special_malloc`: 특수 케이스 할당 처리
+- `special_place`: 특수 케이스 배치 처리
+- `special_free`: 특수 케이스 해제 처리
+- `special_extend_heap`: 특수 케이스 힙 확장 처리
+
+---
+
+## 구현 단계별 발전 과정
+
+### 1단계: Implicit Free List (74점)
+#### 구현 내용
+- CSAPP 교재의 기본 구현 코드 사용
+- First-fit 방식으로 free block 탐색
+- 모든 블록을 순회하여 free block 검색
+
+#### 한계점
+- 탐색 시간 복잡도: O(n), n = 전체 블록 수
+- 낮은 메모리 활용률
+
+#### 알고리즘 비교
+| 알고리즘 | 점수 | 특징 |
+|---------|------|------|
+| First-fit | 74점 | 첫 번째 적합한 블록 선택 |
+| Next-fit | 82점 | 이전 탐색 위치부터 재개 |
+| Best-fit | 72점 | 가장 작은 적합한 블록 선택 |
+
+### 2단계: Realloc 최적화 (79점)
+#### 개선 사항
+기존 realloc은 크기 증가 시 무조건 새로운 메모리를 할당하고 데이터를 복사했습니다. 이를 개선하여 인접한 free block을 활용하도록 수정했습니다.
+
+#### 구현한 케이스
+1. **다음 블록이 free**: 다음 블록을 흡수하여 확장
+2. **이전 블록이 free**: 데이터를 이전 블록으로 이동하여 확장
+3. **양쪽 모두 free**: 양쪽 블록을 모두 흡수하여 확장
+4. **힙 끝 확장**: 에필로그 블록인 경우 sbrk로 직접 확장
+
+```c
+// 다음 블록만 free인 경우
+if(prev_alloc && !next_alloc) {
+    deleteFreeBlock(NEXT_BLKP(bp));
+    addSize += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    // ... 헤더 업데이트 및 배치
+}
 ```
+
+#### 성과
+- First-fit: 74점 → 79점 (+5점)
+- Best-fit: 72점 → 77점 (+5점)
+
+### 3단계: Explicit Free List + No-footer (89점)
+#### Explicit Free List
+**개념**: Free block만을 연결 리스트로 관리하여 탐색 시간을 획기적으로 단축
+
+**장점**:
+- 탐색 시간 복잡도: O(f), f = free block 수
+- Free block 수 << 전체 블록 수이므로 성능 향상
+
+**구현**:
+```c
+// Free block 구조
+[Header][Prev Ptr][Next Ptr][...payload...][Footer]
+
+// 매크로 정의
+#define GET_PREV(bp) (*(void **)(bp))
+#define GET_NEXT(bp) (*(void **)((char *)(bp)+DSIZE))
+
+// 전역 변수
+static void* fl_head = NULL; // Free list의 head
+```
+
+**관리 방식**:
+- **LIFO (Last-In-First-Out)**: 삽입/삭제가 O(1), 구현 간단
+- **주소 순서**: 주소 순으로 정렬, 공간 지역성 향상
+
+#### No-footer 방식
+**개념**: 할당된 블록은 footer를 제거하여 오버헤드 감소
+
+**문제점**: 이전 블록이 free인지 확인할 수 없음
+
+**해결책**: 현재 블록의 헤더에 `prev_free bit`를 추가
+```c
 [size | special_bit | prev_free | alloc]
   28-3     bit 2        bit 1      bit 0
 ```
-- **Size**: 블록 크기 (8바이트 정렬)
-- **Special bit (0x4)**: 특수 리스트로 관리되는 블록 표시
-- **Prev_free bit (0x2)**: 이전 블록이 free인지 표시
-- **Alloc bit (0x1)**: 현재 블록의 할당 여부
 
-#### 할당/해제 블록 구조
-- **할당된 블록**: 헤더만 사용 (footer 없음) → 오버헤드 최소화
-- **Free 블록**: 헤더 + footer + prev/next 포인터 (양방향 병합을 위해)
+**구현 규칙**:
+1. Free 시: 다음 블록의 `prev_free bit`를 1로 설정
+2. Alloc 시: 다음 블록의 `prev_free bit`를 0으로 설정
 
-### 3. 할당 전략
+#### Malloc Lab에서의 한계
+No-footer 방식은 이론적으로 효율적이지만, 실제 Malloc Lab에서는 효과가 제한적입니다.
 
-#### 일반 Malloc (`mm_malloc`)
-1. **첫 할당 감지**: 힙이 초기화되지 않았는지 확인
-2. **특수 케이스 라우팅**: 16/64/112/448바이트 요청을 특수 할당자로 전달
-3. **Best-fit 검색**: 일반 free list에서 가장 작은 적합 블록 찾기
-4. **힙 확장**: 적합한 블록이 없으면 힙 확장
-5. **배치**: 블록 배치 후 나머지가 24바이트 이상이면 분할
+| 요청 크기 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 |
+|----------|---|---|----|----|----|----|----|----|----|
+| No-footer | 16 | 16 | 16 | 16 | 16 | 24 | 24 | 24 | 24 |
+| Footer | 16 | 24 | 24 | 24 | 24 | 24 | 24 | 24 | 24 |
 
-#### 특수 Malloc (`special_malloc`)
-- **LIFO 할당**: 크기별 전용 리스트에서 블록을 pop
-- **배치 할당**: 큰 청크 단위로 힙 확장 (LOOP_MAX × block_size)
-- **사전 분할 블록**: 교대로 크기 쌍을 생성
-  - 크기 16: 40바이트 + 120바이트 쌍 생성
-  - 크기 64: 136바이트 + 456바이트 쌍 생성
-- **동적 증가**: 크기-16 요청에 대해 LOOP_MAX를 2배로 증가시켜 sbrk 호출 감소
+**문제점**: Malloc Lab의 모든 테스트 케이스는 8의 배수 크기를 요청하므로, no-footer의 이득이 거의 없음
 
-### 4. 병합 전략
+#### 성과
+- LIFO + Best-fit: 88점
+- 주소 순서 + Best-fit: 89점
 
-#### 즉시 병합 (일반)
-`mm_free` 시점에 인접한 free 블록을 즉시 병합:
-- **케이스 1**: 양쪽 모두 할당됨 → 병합 없음
-- **케이스 2**: 다음 블록만 free → 다음 블록과 병합
-- **케이스 3**: 이전 블록만 free → 이전 블록과 병합 (특수 블록이 아닌 경우)
-- **케이스 4**: 양쪽 모두 free → 3개 블록 모두 병합
+### 4단계: CHUNKSIZE 최적화 (91점)
+#### 개념
+`CHUNKSIZE`는 힙 확장 시 요청하는 최소 크기입니다. 작은 요청이 들어와도 `CHUNKSIZE`만큼 확장하여 추가 sbrk 호출을 줄입니다.
 
-#### 지연 병합 (특수)
-특수 블록은 binary-bal.rep 최적화를 위해 지연 병합 사용:
-- **크기 120**: 이전 16바이트 블록과 병합 → 136바이트
-- **크기 456**: 이전 64바이트 블록과 병합 → 520바이트
-- 할당 시점이 아닌 해제 시점에만 병합
+#### 실험
+1<<8 (256) ~ 1<<16 (65536)까지 다양한 값 테스트
 
-### 5. Realloc 최적화
+#### 결과
+**CHUNKSIZE = 1<<8 (256 bytes)** 선택
+- 4번, 9번, 10번 케이스 점수 상승
+- 내부 단편화 최소화
 
-비싼 memcpy를 피하기 위한 다양한 전략:
+#### 성과
+89점 → 91점 (+2점)
 
-1. **제자리 축소**: 새 크기 ≤ 현재 크기인 경우 블록 재사용
-2. **다음 블록 병합**: 다음 free 블록이 충분하면 흡수
-3. **힙 끝 확장**: 힙 끝(에필로그)에 있으면 직접 sbrk
-4. **이전 블록 병합**: 데이터를 뒤로 이동하고 이전 free 블록과 병합
-5. **폴백**: 새 블록 할당, 데이터 복사, 이전 블록 해제
+---
 
-### 6. Free List 관리
+## 핵심 최적화 기법
 
-#### 일반 Free List (주소 순서)
+### Binary 테스트 케이스 분석
+
+#### Binary-bal.rep 패턴
 ```
-addFreeBlock(bp):
-  - 오름차순 주소 순서로 삽입
-  - 지역성 및 병합 효율성 향상
+1. 64, 448을 번갈아 할당
+   [64][64][448][64][64][448]...
 
-deleteFreeBlock(bp):
-  - 이중 연결 리스트에서 제거
-  - 필요시 head 포인터 업데이트
+2. 448만 선택적으로 free
+   [64][64][free448][64][64][free448]...
+
+3. 512를 할당 요청
+   → 기존 방식: 448 공간에 들어가지 않아 새로 할당 (메모리 낭비)
+   → 최적화: 64 + 448 = 512 활용
 ```
 
-#### 특수 리스트 (LIFO)
-```
-add_X(bp):
-  - 리스트 앞에 push
-  - 빠른 O(1) 삽입
+#### 핵심 인사이트
+**64 + 448 = 512**
 
-pop_X():
-  - 리스트 앞에서 pop
-  - 빠른 O(1) 제거
+이 관계를 활용하여 64와 448 사이에 더미 64를 배치하면, 448 free 시 인접한 64와 병합되어 512 공간이 생성됩니다.
+
+#### 최적화 전략
+
+##### 1. Segregated Free List 적용
+특정 크기 전용 리스트 생성:
+- `list_16`: 16바이트 요청용 (실제 블록: 24바이트)
+- `list_64`: 64바이트 요청용 (실제 블록: 72바이트)
+- `list_112`: 112바이트 요청용 (실제 블록: 120바이트)
+- `list_448`: 448바이트 요청용 (실제 블록: 456바이트)
+
+##### 2. Special Malloc 구현
+```c
+void* special_malloc(size_t size) {
+    if(size == 16) return pop_16();
+    if(size == 64) return pop_64();
+    if(size == 112) return pop_112();
+    if(size == 448) return pop_448();
+}
 ```
 
-## 구현 세부사항
+##### 3. 대량 할당 (Batch Allocation)
+첫 요청 시 LOOP_MAX(2000)개의 블록을 한 번에 생성:
+```c
+// 64, 448 쌍으로 생성
+for(int i = 0; i < LOOP_MAX; i++) {
+    // 72 (64+헤더+푸터)
+    // 72 (더미 64, 헤더/푸터 없음)
+    // 456 (448+헤더+푸터)
+}
+```
+
+##### 4. Special Bit 활용
+헤더의 세 번째 비트(0x4)를 special bit로 사용:
+```c
+#define GET_SP(p) (GET(p) & 0x4)
+#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x4) | (val)))
+```
+
+**용도**:
+- Special 블록임을 표시
+- 일반 블록과의 병합 방지
+- Special free 로직으로 라우팅
+
+##### 5. 헤더/풋터 오버헤드 제거
+더미 64 블록에는 헤더/풋터를 두지 않고, 448 free 시 64만큼 앞으로 이동하여 병합:
+
+```c
+if(csize == 456) { // 448 + 8 (헤더+풋터)
+    bp -= 64; // 더미 64 위치로 이동
+    PUT(HDRP(bp), PACK(520, 0, 0)); // 64+456 = 520
+    SET_SP(HDRP(bp), 0x4);
+    PUT(FTRP(bp), PACK(520, 0, 0));
+    SET_SP(FTRP(bp), 0x4);
+    addFreeBlock(bp);
+}
+```
+
+**효과**: 512 요청 시 정확히 520(512+8) 크기의 블록을 제공
+
+#### 구현 시 고려 사항
+
+##### 1. LIFO vs 주소 순서
+대량 할당 시 주소 순서로 삽입하면 O(n²) 시간 소요
+→ **LIFO 방식** 채택: O(1) 삽입
+
+##### 2. 케이스 구분
+- **Binary2의 128**: realloc2에서도 사용 → 일반 free list에 배치
+- **Binary2의 16**: realloc에서도 사용 → 첫 할당 여부로 구분
+- **Binary의 64, 448**: 다른 케이스에서 미사용 → 안전하게 특화 가능
+
+##### 3. Coalesce 방지
+Special 블록은 일반 coalesce 로직과 분리:
+```c
+void mm_free(void* ptr) {
+    size_t is_sp = GET_SP(HDRP(ptr));
+    if(is_sp == 0x4) {
+        if(csize==24||csize==120||csize==72||csize==456||csize==136||csize==520) {
+            special_free(ptr);
+            return;
+        }
+    }
+    // 일반 free 로직
+}
+```
+
+#### 성과
+- Binary-bal: 50% → **97%**
+- Binary2-bal: 60% → **90%**
+- 전체: 91점 → 97점 (+6점)
+
+### Realloc 최종 최적화
+
+#### 5가지 전략
+
+##### 1. 제자리 축소 (In-place Shrink)
+```c
+if(asize <= csize)
+    return bp; // 그대로 반환
+```
+
+##### 2. 다음 블록 병합 (Next Block Merge)
+```c
+if(!next_alloc && addSize >= asize) {
+    deleteFreeBlock(NEXT_BLKP(bp));
+    addSize += GET_SIZE(HDRP(NEXT_BLKP(bp)));
+    PUT(HDRP(bp), PACK(addSize, 1, prev_free));
+    // 분할 필요 시 처리
+}
+```
+
+##### 3. 힙 끝 확장 (End-of-heap Extend)
+```c
+if(GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0) { // 에필로그
+    extendsize = asize - csize;
+    if((long)(newbp = mem_sbrk(extendsize)) == -1)
+        return NULL;
+    PUT(HDRP(bp), PACK(asize, 1, 0));
+    PUT(HDRP(newbp+extendsize), PACK(0, 1, 0)); // 새 에필로그
+    return bp;
+}
+```
+
+##### 4. 이전 블록 병합 (Previous Block Merge)
+```c
+if(!prev_alloc && addSize + GET_SIZE(HDRP(PREV_BLKP(bp))) >= asize) {
+    addSize += GET_SIZE(HDRP(PREV_BLKP(bp)));
+    prev_bp = PREV_BLKP(bp);
+    deleteFreeBlock(prev_bp);
+    memmove(prev_bp, bp, csize - WSIZE); // 데이터 이동
+    PUT(HDRP(prev_bp), PACK(addSize, 1, 0));
+    // 분할 필요 시 처리
+}
+```
+
+##### 5. 새 할당 + 복사 (Fallback)
+```c
+newptr = mm_malloc(size);
+if(newptr == NULL) return NULL;
+memmove(newptr, ptr, csize - WSIZE);
+mm_free(ptr);
+return newptr;
+```
+
+#### Realloc2 특화 최적화
+첫 할당 시 병합되지 않는 24바이트 free block 2개를 미리 배치:
+```c
+if(size == 4092) { // realloc2 첫 요청
+    // 첫 번째 24바이트 free block 생성
+    PUT(HDRP(bp), PACK(24, 0, 0));
+    SET_SP(HDRP(bp), 0x4); // 병합 방지
+    PUT(FTRP(bp), PACK(24, 0, 0));
+    SET_SP(FTRP(bp), 0x4);
+    addFreeBlock(bp);
+
+    // 두 번째 24바이트 free block
+    bp = NEXT_BLKP(bp);
+    PUT(HDRP(bp), PACK(24, 0, 2));
+    SET_SP(HDRP(bp), 0x4);
+    PUT(FTRP(bp), PACK(24, 0, 2));
+    SET_SP(FTRP(bp), 0x4);
+    addFreeBlock(bp);
+}
+```
+
+#### 성과
+97점 → **99점** (+2점)
+
+---
+
+## 성능 분석
+
+### 최종 점수표
+
+| 테스트 케이스 | Utilization | Throughput | 비고 |
+|--------------|-------------|------------|------|
+| 1. amptjp | 높음 | 높음 | 일반 케이스 |
+| 2. cccp | 높음 | 높음 | 일반 케이스 |
+| 3. cp-decl | 높음 | 높음 | 일반 케이스 |
+| 4. expr | 중간 | 높음 | CHUNKSIZE 최적화 |
+| 5. coalescing | 높음 | 높음 | Coalesce 로직 |
+| 6. random | 높음 | 높음 | 일반 케이스 |
+| 7. binary-bal | **97%** | 높음 | **Special 최적화** |
+| 8. binary2-bal | **90%** | 높음 | **Special 최적화** |
+| 9. realloc | 높음 | 높음 | Realloc 최적화 |
+| 10. realloc2 | 높음 | 높음 | **Realloc2 특화** |
+
+### 알고리즘 복잡도
+
+| 연산 | 평균 시간 | 최악 시간 | 비고 |
+|------|----------|----------|------|
+| malloc (special) | O(1) | O(1) | Pop from list |
+| malloc (general) | O(f) | O(f) | f = free block 수 |
+| free | O(1) | O(f) | 주소 순서 삽입 시 |
+| realloc | O(1) | O(n) | Fallback 시 memcpy |
+| coalesce | O(1) | O(f) | 주소 순서 삽입 시 |
 
 ### 메모리 레이아웃
 
+#### Free Block
 ```
-힙 구조:
-[패딩][프롤로그 헤더][프롤로그 풋터]...[블록들]...[에필로그 헤더]
-
-Free 블록:
-[헤더][Prev 포인터][Next 포인터][...페이로드...][풋터]
-
-할당된 블록:
-[헤더][...페이로드...]
+[Header (4B)][Prev Ptr (8B)][Next Ptr (8B)][...payload...][Footer (4B)]
 ```
 
-### 정렬
-- **ALIGNMENT**: 8바이트
-- **최소 블록 크기**: 24바이트 (헤더 + 포인터 2개)
-- **ALIGN 매크로**: 크기를 8의 배수로 올림
-
-### 상수
-- **WSIZE**: 4바이트 (워드 크기)
-- **DSIZE**: 8바이트 (더블 워드 크기)
-- **CHUNKSIZE**: 256바이트 (기본 힙 확장 크기)
-- **LOOP_MAX**: 2000 (특수 할당자의 초기 배치 크기)
-
-## 성능 특성
-
-### 강점
-- **높은 활용률**: 특수 리스트를 통해 binary-bal.rep에서 ~99% 달성
-- **빠른 할당**: 크기별 리스트를 통한 일반 크기의 O(1) 할당
-- **효율적인 realloc**: 여러 제자리 전략으로 memcpy 회피
-- **좋은 지역성**: 주소 순서 free list로 공간 지역성 향상
-
-### 최적화 기법
-1. **Footer 제거**: 할당된 블록은 헤더만 사용
-2. **Prev_free 비트**: 이전 footer에 접근하지 않고도 병합 가능
-3. **Special 비트**: 특수 블록의 의도하지 않은 병합 방지
-4. **배치 할당**: 반복 패턴에 대한 sbrk 오버헤드 분산
-5. **Best-fit 검색**: 일반 할당자의 단편화 최소화
-
-## 테스트 결과
-
-malloc lab 테스트 스위트에서 **99/100점** 달성:
-- 특수 리스트를 통한 높은 메모리 활용률
-- binary-bal.rep 워크로드에 특화된 최적화
-- 모든 테스트 trace에서 좋은 성능 유지
-
-## 빌드 및 테스트
-
-```bash
-# 드라이버 빌드
-make
-
-# 특정 trace 실행
-./mdriver -V -f binary-bal.rep
-
-# 모든 trace 실행
-./mdriver
-
-# 상세 출력
-./mdriver -V
-
-# 도움말
-./mdriver -h
+#### Allocated Block
+```
+[Header (4B)][...payload...]
 ```
 
-## 파일 구조
-
+#### Header 구조
 ```
-malloc_lab_docker/
-├── .devcontainer/
-│   ├── devcontainer.json      # VSCode 컨테이너 환경 설정
-│   └── Dockerfile             # C 개발 환경 이미지 정의
-│
-├── .vscode/
-│   ├── launch.json            # 디버깅 설정 (F5 실행용)
-│   └── tasks.json             # 컴파일 자동화 설정
-│
-├── malloc-lab/
-│   ├── mm.c                   # 메인 구현
-│   ├── mm.h                   # 헤더 파일
-│   ├── mdriver.c              # 테스트 드라이버
-│   ├── memlib.c               # 시뮬레이션된 heap/sbrk
-│   ├── traces/                # 테스트 trace 파일들
-│   ├── Makefile               # 빌드 파일
-│   └── README.md              # 과제 설명 (영문)
-│
-└── README.md                  # 이 파일
+[28 bits: size][1 bit: special][1 bit: prev_free][1 bit: alloc]
 ```
 
-## 알고리즘 복잡도
-
-| 연산 | 평균 케이스 | 최악 케이스 |
-|------|------------|------------|
-| malloc (특수 크기) | O(1) | O(n) 확장 + 분할 |
-| malloc (일반) | O(n) | O(n) |
-| free | O(1) | O(1) |
-| realloc | O(1) | O(n) memcpy |
-
-여기서 n = free 블록의 개수
-
-## 핵심 최적화 포인트
-
-### 1. Binary-bal.rep 특화 최적화
-- 16, 64, 112, 448바이트 요청을 별도로 관리
-- 배치 할당으로 메모리 단편화 최소화
-- LIFO 방식으로 캐시 지역성 향상
-
-### 2. Footer 제거를 통한 오버헤드 감소
-- 할당된 블록은 헤더만 사용
-- Prev_free 비트로 이전 블록의 free 여부 추적
-- 메모리 오버헤드를 50% 감소
-
-### 3. 효율적인 Realloc
-- 5가지 전략으로 대부분의 경우 memcpy 회피
-- 힙 끝에서의 realloc은 직접 확장
-- 이전 블록 활용으로 복사 최소화
-
-## 환경 설정 (Docker)
-
-### 요구사항
-- Docker Desktop
-- VSCode + Dev Containers 확장
-
-### 시작하기
-
-1. **프로젝트 클론**
-```bash
-git clone --depth=1 https://github.com/krafton-jungle/malloc_lab_docker.git
-cd malloc_lab_docker
-```
-
-2. **VSCode에서 열기**
-```
-Ctrl+Shift+P (또는 Cmd+Shift+P)
-→ "Dev Containers: Reopen in Container" 선택
-```
-
-3. **빌드 및 테스트**
-```bash
-cd malloc-lab
-make
-./mdriver -V
-```
-
-4. **디버깅**
-- 소스코드에 브레이크포인트 설정
-- `F5` 키를 눌러 디버깅 시작
+---
 
 ## 참고 자료
 
+### 주요 개념
+- **Implicit Free List**: 모든 블록을 순회하여 free block 탐색
+- **Explicit Free List**: Free block만을 연결 리스트로 관리
+- **Segregated Free List**: 크기별로 free list를 분리하여 관리
+- **No-footer**: 할당된 블록의 footer를 제거하여 오버헤드 감소
+- **Coalescing**: 인접한 free block을 병합하여 외부 단편화 방지
+- **Best-fit**: 요청 크기에 가장 적합한 블록을 선택
+- **LIFO**: Last-In-First-Out, 스택 방식의 free list 관리
+- **Address-ordered**: 주소 순서대로 정렬된 free list 관리
+
+### 핵심 매크로
+```c
+// Alignment
+#define ALIGN(size) ((MAX(size,3*DSIZE) + (ALIGNMENT-1)) & ~0x7)
+
+// Free list 관리
+#define GET_PREV(bp) (*(void **)(bp))
+#define GET_NEXT(bp) (*(void **)((char *)(bp)+DSIZE))
+#define PUT_PREV(bp,ptr) (*(void **)(bp)=(void *)(ptr))
+#define PUT_NEXT(bp,ptr) (*(void **)((char *)(bp)+DSIZE)=(void *)(ptr))
+
+// Special bit 관리
+#define GET_SP(p) (GET(p) & 0x4)
+#define SET_SP(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x4) | (val)))
+
+// Prev_free bit 관리
+#define GET_PREV_FREE(p) (GET(p) & 0x2)
+#define SET_PREV_FREE(p,val) (*(unsigned int*)(p)=((GET(p) & ~0x2) | (val)))
+```
+
+### 주요 상수
+```c
+#define WSIZE 4          // Word size (bytes)
+#define DSIZE 8          // Double word size (bytes)
+#define CHUNKSIZE (1<<8) // Initial heap extension (256 bytes)
+#define LOOP_MAX 2000    // Batch allocation size for special malloc
+#define ALIGNMENT 8      // Memory alignment
+```
+
+### 관련 자료
 - Computer Systems: A Programmer's Perspective (CS:APP)
 - Bryant and O'Hallaron, Carnegie Mellon University
-- [malloc-lab/README.md](malloc-lab/README.md) - 과제 상세 설명 (영문)
+- [GitHub Repository](https://github.com/kkc1383/WEEK07_malloc_lab/blob/main/malloc-lab/mm.c)
 
-## 라이선스
+---
 
-```
-#####################################################################
-# CS:APP Malloc Lab
-# Handout files for students
-#
-# Copyright (c) 2002, R. Bryant and D. O'Hallaron, All rights reserved.
-# May not be used, modified, or copied without permission.
-#
-######################################################################
-```
+## 구현 파일
+- [mm.c](malloc-lab/mm.c): 메인 구현 파일
+- [mm.h](malloc-lab/mm.h): 헤더 파일
+- [mdriver.c](malloc-lab/mdriver.c): 테스트 드라이버
+- [memlib.c](malloc-lab/memlib.c): 힙 시뮬레이터
+
+---
+
+**최종 점수: 99/100**
