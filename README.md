@@ -1,19 +1,12 @@
-# Malloc Lab 구현 문서
+# Malloc Lab With C
 
 **Team**: team_one
+
 **Author**: Kyoungchan Kang (kangkc09@gmail.com)
+
 **Score**: 99/100
+
 **GitHub**: https://github.com/kkc1383/WEEK07_malloc_lab/blob/main/malloc-lab/mm.c
-
----
-
-## 목차
-1. [개요](#개요)
-2. [최종 구현 방식](#최종-구현-방식)
-3. [구현 단계별 발전 과정](#구현-단계별-발전-과정)
-4. [핵심 최적화 기법](#핵심-최적화-기법)
-5. [성능 분석](#성능-분석)
-6. [참고 자료](#참고-자료)
 
 ---
 
@@ -22,7 +15,6 @@
 본 프로젝트는 동적 메모리 할당자(malloc/free/realloc)를 구현하여 높은 메모리 활용률과 빠른 처리 속도를 달성하는 것을 목표로 합니다. CSAPP(Computer Systems: A Programmer's Perspective) 교재의 Malloc Lab을 기반으로 하며, 최종적으로 **99/100점**을 획득했습니다.
 
 ### 주요 성과
-- **메모리 활용률**: Binary 테스트 케이스에서 97%/90% 달성
 - **처리 속도**: Explicit Free List를 통한 탐색 시간 최적화
 - **특화 최적화**: Binary-bal, Binary2-bal, Realloc2 케이스 최적화
 
@@ -34,7 +26,7 @@
 - **Explicit Free List + Best Fit** 방식을 기본으로 사용
 - **Segregated Free List** 개념을 특정 크기에만 적용
 - **No-footer 방식** (prev_free bit 활용)
-- **Special bit** (0x4)를 통한 특수 블록 관리
+- **Special bit** (0x4)를 통한 특수 블록 관리 (realloc2 케이스)
 
 ### 특수 케이스 최적화
 | 테스트 케이스 | 최적화 기법 | 설명 |
@@ -60,7 +52,7 @@
 - 모든 블록을 순회하여 free block 검색
 
 #### 한계점
-- 탐색 시간 복잡도: O(n), n = 전체 블록 수
+- 탐색 시간 복잡도: O(n), n = 전체 블록 수 (best-fit의 경우)
 - 낮은 메모리 활용률
 
 #### 알고리즘 비교
@@ -277,57 +269,6 @@ void mm_free(void* ptr) {
 
 ### Realloc 최종 최적화
 
-#### 5가지 전략
-
-##### 1. 제자리 축소 (In-place Shrink)
-```c
-if(asize <= csize)
-    return bp; // 그대로 반환
-```
-
-##### 2. 다음 블록 병합 (Next Block Merge)
-```c
-if(!next_alloc && addSize >= asize) {
-    deleteFreeBlock(NEXT_BLKP(bp));
-    addSize += GET_SIZE(HDRP(NEXT_BLKP(bp)));
-    PUT(HDRP(bp), PACK(addSize, 1, prev_free));
-    // 분할 필요 시 처리
-}
-```
-
-##### 3. 힙 끝 확장 (End-of-heap Extend)
-```c
-if(GET_SIZE(HDRP(NEXT_BLKP(bp))) == 0) { // 에필로그
-    extendsize = asize - csize;
-    if((long)(newbp = mem_sbrk(extendsize)) == -1)
-        return NULL;
-    PUT(HDRP(bp), PACK(asize, 1, 0));
-    PUT(HDRP(newbp+extendsize), PACK(0, 1, 0)); // 새 에필로그
-    return bp;
-}
-```
-
-##### 4. 이전 블록 병합 (Previous Block Merge)
-```c
-if(!prev_alloc && addSize + GET_SIZE(HDRP(PREV_BLKP(bp))) >= asize) {
-    addSize += GET_SIZE(HDRP(PREV_BLKP(bp)));
-    prev_bp = PREV_BLKP(bp);
-    deleteFreeBlock(prev_bp);
-    memmove(prev_bp, bp, csize - WSIZE); // 데이터 이동
-    PUT(HDRP(prev_bp), PACK(addSize, 1, 0));
-    // 분할 필요 시 처리
-}
-```
-
-##### 5. 새 할당 + 복사 (Fallback)
-```c
-newptr = mm_malloc(size);
-if(newptr == NULL) return NULL;
-memmove(newptr, ptr, csize - WSIZE);
-mm_free(ptr);
-return newptr;
-```
-
 #### Realloc2 특화 최적화
 첫 할당 시 병합되지 않는 24바이트 free block 2개를 미리 배치:
 ```c
@@ -357,29 +298,8 @@ if(size == 4092) { // realloc2 첫 요청
 ## 성능 분석
 
 ### 최종 점수표
+<img width="457" height="400" alt="image" src="https://github.com/user-attachments/assets/4652f2b8-b0d5-4c1c-81ba-a496eecf59b7" />
 
-| 테스트 케이스 | Utilization | Throughput | 비고 |
-|--------------|-------------|------------|------|
-| 1. amptjp | 높음 | 높음 | 일반 케이스 |
-| 2. cccp | 높음 | 높음 | 일반 케이스 |
-| 3. cp-decl | 높음 | 높음 | 일반 케이스 |
-| 4. expr | 중간 | 높음 | CHUNKSIZE 최적화 |
-| 5. coalescing | 높음 | 높음 | Coalesce 로직 |
-| 6. random | 높음 | 높음 | 일반 케이스 |
-| 7. binary-bal | **97%** | 높음 | **Special 최적화** |
-| 8. binary2-bal | **90%** | 높음 | **Special 최적화** |
-| 9. realloc | 높음 | 높음 | Realloc 최적화 |
-| 10. realloc2 | 높음 | 높음 | **Realloc2 특화** |
-
-### 알고리즘 복잡도
-
-| 연산 | 평균 시간 | 최악 시간 | 비고 |
-|------|----------|----------|------|
-| malloc (special) | O(1) | O(1) | Pop from list |
-| malloc (general) | O(f) | O(f) | f = free block 수 |
-| free | O(1) | O(f) | 주소 순서 삽입 시 |
-| realloc | O(1) | O(n) | Fallback 시 memcpy |
-| coalesce | O(1) | O(f) | 주소 순서 삽입 시 |
 
 ### 메모리 레이아웃
 
@@ -457,3 +377,4 @@ if(size == 4092) { // realloc2 첫 요청
 ---
 
 **최종 점수: 99/100**
+
